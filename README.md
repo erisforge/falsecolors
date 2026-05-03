@@ -118,6 +118,24 @@ Three layers compose in sequence:
 
 **Perfect recovery.** Round-trip is exact. Wrong passphrase is rejected, not silently garbled.
 
+## Local-Model Backend Performance
+
+The static `encrypt` / `decrypt` path is deterministic and always works. Round-trip recovery is exact. The static path is the recommended one for high-stakes use.
+
+The `--backend llm` path uses a local LLM via Ollama for arbitrary cover topics. Recovery quality depends on the model. A formal evaluation across six 1.7B-8B models, three sensitive OT/ICS test documents, and 180 trials (n=10 per model per doc) is documented in [`evaluation/RESULTS.md`](evaluation/RESULTS.md). The harness, raw per-trial data, and reference corpus are all in `evaluation/` for reproducibility.
+
+Headline:
+
+| Use case | Recommended model |
+|---|---|
+| Batch / unattended use, consistency-first | **`gemma3:4b`** (`P(rec < 0.30) = 0`, mapping support 0.95) |
+| One-off interactive use with manual diff | **`mistral:7b-instruct`** (peak quality, 13% tail-risk requires diff verification) |
+| Avoid | qwen3 family (mapping support 0.01 even with `/no_think`), phi3:mini (49% hallucinated mapping rate) |
+
+**No model in the cohort is production-grade today.** `P(recovery ≥ 0.95)` is at most 0.17 (mistral) and 0 for every other model. Treat the LLM backend as research-grade and diff every cover before relying on it. A polish-step pass (rerun the cover through a second LLM call for naturalness, then re-verify) is identified as the obvious next product investment.
+
+The evaluation surfaced one silent-integrity failure mode worth knowing about: a model can emit a parseable mapping JSON whose entries do not correspond to the substitutions actually made in the cover. This passes JSON validity but breaks recovery. The harness's `mapping_supported / mapping_sampled` metric detects this; the public `falsecolors.py` does not. If you build automation on top of the LLM backend, add the same spot-check from `evaluation/run.py:verify_mapping` to your pipeline.
+
 ## The Paper
 
 `Eris_FALSECOLORS_v3.md` contains the full theoretical foundation, including:
@@ -136,7 +154,7 @@ The methods described in the paper are published as prior art to ensure they rem
 | Feature | Requires |
 |---------|----------|
 | Core encrypt/decrypt (static) | Python 3.8+, nothing else |
-| LLM backend (any topic) | Ollama + 3B+ model |
+| LLM backend (any topic) | Ollama + 4B+ model (gemma3:4b recommended; see `evaluation/RESULTS.md`) |
 | Proxy mode (Anthropic) | ANTHROPIC_API_KEY env var |
 | Proxy mode (OpenAI) | OPENAI_API_KEY env var |
 | Proxy mode (local) | Ollama |
