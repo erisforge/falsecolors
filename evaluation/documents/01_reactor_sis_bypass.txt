@@ -1,0 +1,14 @@
+CONFIDENTIAL - ENGAGEMENT FINDINGS
+Client: [Redacted Chemical Manufacturing]
+Assessor: River Caudle, Riverman Enterprises
+Date: April 2026
+
+CRITICAL FINDING: Safety Instrumented System Bypass via Modbus TCP
+
+During the assessment of the client's ethylene oxide reactor control loop, the assessor identified that the Safety Instrumented System protecting the reactor overpressure condition accepts unauthenticated Modbus TCP writes to holding registers 40001 through 40016. These registers control the high-pressure interlock setpoints for the emergency shutdown valve on the reactor vessel.
+
+An attacker with network access to the Level 1 control network can modify the interlock threshold from the engineered setpoint of 185 PSI to an arbitrary value without triggering any alarm or audit log entry. The Safety PLC does not validate the source of register writes and does not maintain a change history.
+
+The reactor control system is accessible at 10.10.1.50 on port 502. The SIS network architecture does not comply with IEC 61511 requirements.
+
+This finding has not been disclosed to any party other than the client's plant manager and the assessor's legal counsel.

@@ -1,0 +1,16 @@
+CONFIDENTIAL - ENGAGEMENT FINDINGS
+Client: [Redacted Municipal Water Utility]
+Assessor: River Caudle, Riverman Enterprises
+Date: February 2026
+
+CRITICAL FINDING: Hardcoded SCADA Credentials in Pump Station Firmware
+
+During source code review of firmware version v3.4.2 deployed across twelve raw water pump stations, the assessor recovered hardcoded operator credentials embedded in the SCADA polling routine. The credentials grant write access to the chlorination dosing setpoints on the BACnet master at each station and to the level transmitter calibration values on the upstream reservoir DNP3 outstation.
+
+An attacker who recovers the firmware image, which is distributed unencrypted via TFTP from the engineering workstation at 192.168.50.4 on port 69, can extract the credentials in under five minutes using a standard hex editor. The same credential pair authenticates against every station in the deployment because the firmware build is shared across all twelve sites.
+
+With these credentials, an attacker on the Level 2 supervisory network can write arbitrary chlorination dosing setpoints between 0.2 mg/L and 8.0 mg/L without triggering any alarm or audit log entry. The HMI does not present a notification when setpoints are modified outside of scheduled maintenance windows. There is no change detection on the BACnet master.
+
+The water utility's network architecture does not comply with NIST 800-82 Rev. 3 or AWWA G430-21 cybersecurity guidance for water sector industrial control systems.
+
+This finding has not been disclosed to any party other than the client's plant manager and the assessor's legal counsel.

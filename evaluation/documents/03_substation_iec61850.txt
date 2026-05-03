@@ -1,0 +1,16 @@
+CONFIDENTIAL - ENGAGEMENT FINDINGS
+Client: [Redacted Regional Transmission Operator]
+Assessor: River Caudle, Riverman Enterprises
+Date: March 2026
+
+HIGH FINDING: GOOSE Message Spoofing on Substation Process Bus
+
+During the assessment of a 230 kV transmission substation the assessor identified that the IEC 61850 process bus carries unsigned GOOSE messages between the bay protection IEDs and the merging units. The protection relays at register 40023 accept GOOSE messages without source authentication and without sequence number validation against replay.
+
+An attacker with network access to the substation LAN at 172.16.4.0 on port 102 can craft a forged GOOSE frame to trip the bay breaker on Bay 4, isolating a 220 MW generation source from the grid. The bay protection IED firmware version v2.18.7 does not implement IEC 62351-6 GOOSE authentication and does not generate any audit log entry when a GOOSE message is rejected for sequence number violation.
+
+The substation control network architecture does not comply with NERC CIP-005-7 or IEC 62443-3-3 SR 3.5 for control network integrity. CVE-2024-31872 is applicable to the deployed firmware build but the vendor patch has not been applied to any IED in the substation.
+
+The plant manager confirmed that no change detection is in place for IED firmware writes and that the engineering workstation has unauthenticated write access to all twenty IEDs in the substation.
+
+This finding has not been disclosed to any party other than the client's plant manager and the assessor's legal counsel.
