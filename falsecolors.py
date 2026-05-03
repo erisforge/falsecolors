@@ -411,55 +411,114 @@ DOMAINS = {
 # LLM BACKEND
 # ================================================================
 
+LLM_TWO_STEP = True
+
+
 def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
     """Use local LLM for domain translation. Returns (text, mapping).
 
+    Encode direction uses a two-step call when LLM_TWO_STEP is True:
+      Call 1: model proposes the term mapping as a JSON object only.
+      Call 2: model rewrites the source using the fixed mapping.
+    This eliminates the bimodal failure mode observed when a single prompt
+    asks the model to simultaneously commit to prose and a mapping.
+
     OLLAMA_TIMEOUT (seconds, default 120) controls the request timeout.
-    OLLAMA_PROMPT_PREFIX is prepended to the prompt and is intended for
+    OLLAMA_PROMPT_PREFIX is prepended to every prompt and is intended for
     model-specific directives like qwen3's /no_think."""
+    import urllib.request
+
     base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
     prompt_prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
 
-    if direction == "encode":
-        prompt = (f"You are a domain translation engine. Rewrite the following "
-                  f"text so it reads as a document about: {topic}\n\n"
-                  f"Replace every domain-specific term with an equivalent from "
-                  f"the target topic. Preserve every logical relationship.\n\n"
-                  f"After the rewritten text, output ONLY a JSON object on a "
-                  f"new line mapping every substitution: "
-                  f'{{\"original\": \"replacement\", ...}}\n\n'
-                  f"SOURCE:\n{text}")
-    else:
-        prompt = (f"Reverse the following domain substitutions in this text. "
-                  f"Apply these mappings:\n{json.dumps(text[1])}\n\n"
-                  f"TEXT:\n{text[0]}")
-
-    if prompt_prefix:
-        prompt = prompt_prefix + prompt
-
-    import urllib.request
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
-                        "options": {"temperature": 0.1}}).encode()
-    try:
-        req = urllib.request.Request(f"{base}/api/generate", data=body,
-                                     headers={"Content-Type": "application/json"})
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        response = json.loads(resp.read())["response"]
-
-        json_start = response.rfind('\n{')
-        if json_start == -1:
-            json_start = response.rfind('{')
-        if json_start != -1:
-            cover = response[:json_start].strip()
-            mapping_str = response[json_start:].strip().strip('`')
-            if mapping_str.startswith('json'):
-                mapping_str = mapping_str[4:].strip()
-            mapping = json.loads(mapping_str)
+    def _call(prompt):
+        if prompt_prefix:
+            prompt_with_prefix = prompt_prefix + prompt
         else:
-            cover = response.strip()
+            prompt_with_prefix = prompt
+        body = json.dumps({"model": model, "prompt": prompt_with_prefix,
+                           "stream": False,
+                           "options": {"temperature": 0.1}}).encode()
+        req = urllib.request.Request(
+            f"{base}/api/generate", data=body,
+            headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())["response"]
+
+    try:
+        if direction == "encode" and LLM_TWO_STEP:
+            prompt1 = (
+                f"You are a domain translation engine. Identify every "
+                f"domain-specific term in the SOURCE text below that should "
+                f"be replaced with a {topic}-domain equivalent. Output a JSON "
+                f"object on a single line mapping each original term to its "
+                f"{topic} replacement: {{\"original\": \"replacement\", ...}}\n\n"
+                f"Output ONLY the JSON object. No prose, no markdown, no "
+                f"commentary.\n\n"
+                f"SOURCE:\n{text}"
+            )
+            raw1 = _call(prompt1)
+
             mapping = {}
-        return cover, mapping
+            raw1_stripped = raw1.strip().strip('`')
+            if raw1_stripped.startswith('json'):
+                raw1_stripped = raw1_stripped[4:].strip()
+            json_start = raw1_stripped.find('{')
+            json_end = raw1_stripped.rfind('}')
+            if json_start != -1 and json_end != -1:
+                try:
+                    mapping = json.loads(raw1_stripped[json_start:json_end + 1])
+                except json.JSONDecodeError:
+                    pass
+
+            prompt2 = (
+                f"You are a domain translation engine. Rewrite the SOURCE "
+                f"text below as a document about: {topic}\n\n"
+                f"Apply these substitutions exactly. Do not introduce other "
+                f"substitutions. Preserve every logical relationship.\n\n"
+                f"MAPPING:\n{json.dumps(mapping)}\n\n"
+                f"SOURCE:\n{text}\n\n"
+                f"Output ONLY the rewritten text. No JSON, no commentary."
+            )
+            cover = _call(prompt2).strip()
+            return cover, mapping
+
+        elif direction == "encode":
+            prompt = (
+                f"You are a domain translation engine. Rewrite the following "
+                f"text so it reads as a document about: {topic}\n\n"
+                f"Replace every domain-specific term with an equivalent from "
+                f"the target topic. Preserve every logical relationship.\n\n"
+                f"After the rewritten text, output ONLY a JSON object on a "
+                f"new line mapping every substitution: "
+                f'{{\"original\": \"replacement\", ...}}\n\n'
+                f"SOURCE:\n{text}"
+            )
+            response = _call(prompt)
+            json_start = response.rfind('\n{')
+            if json_start == -1:
+                json_start = response.rfind('{')
+            if json_start != -1:
+                cover = response[:json_start].strip()
+                mapping_str = response[json_start:].strip().strip('`')
+                if mapping_str.startswith('json'):
+                    mapping_str = mapping_str[4:].strip()
+                mapping = json.loads(mapping_str)
+            else:
+                cover = response.strip()
+                mapping = {}
+            return cover, mapping
+
+        else:
+            prompt = (
+                f"Reverse the following domain substitutions in this text. "
+                f"Apply these mappings:\n{json.dumps(text[1])}\n\n"
+                f"TEXT:\n{text[0]}"
+            )
+            response = _call(prompt)
+            return response.strip(), {}
+
     except ConnectionRefusedError:
         print(f"[!] Cannot connect to Ollama at {base}")
         print(f"    Install: curl -fsSL https://ollama.com/install.sh | sh")
