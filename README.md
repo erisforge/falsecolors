@@ -59,6 +59,23 @@ python falsecolors.py proxy \
   --api anthropic
 ```
 
+```bash
+# Sanitize for LLM analysis: strip identities, preserve math
+python falsecolors.py sanitize \
+  --source finding.txt \
+  --passphrase "my secret phrase" \
+  --output sanitized.txt
+
+# The LLM sees ASSET_001, PARAM_003, SYS_007. It can reason
+# about vulnerability patterns. It can't identify the system.
+
+# Recover original
+python falsecolors.py desanitize \
+  --source sanitized.txt \
+  --passphrase "my secret phrase" \
+  --output recovered.txt
+```
+
 ## What It Does
 
 **Before (sensitive OT pentest finding):**
@@ -94,6 +111,8 @@ Three layers compose in sequence:
 **Any cover topic.** With the `--backend llm` flag and a local model (Ollama), encrypt into any topic: bumblebees, 1800s Ethiopian fashion, competitive dog grooming, whatever.
 
 **LLM proxy mode.** Interactive chat where you speak in your native domain (OT/ICS security) and the cloud LLM (Anthropic, OpenAI, or local) sees only the cover domain (brewery operations). Responses are automatically decoded back to your domain.
+
+**Sanitize mode.** Strip all domain-specific identities while preserving mathematical relationships. Every token becomes an opaque label (ASSET_001, PARAM_003, SYS_007). Numeric values shift by a constant derived from hash(document + timestamp salt). The LLM can reason about vulnerability patterns, detection gaps, and remediation approaches without knowing what physical system it's analyzing.
 
 **Self-contained output.** The encrypted mapping is embedded in the cover document itself. No separate key files to manage. The recipient needs only the file and the passphrase.
 

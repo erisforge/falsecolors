@@ -404,8 +404,12 @@ DOMAINS = {
 # ================================================================
 
 def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
-    """Use local LLM for domain translation. Returns (text, mapping)."""
+    """Use local LLM for domain translation. Returns (text, mapping).
+
+    Request timeout is configurable via OLLAMA_TIMEOUT (seconds, default 120).
+    Thinking-class models often need a longer timeout."""
     base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
 
     if direction == "encode":
         prompt = (f"You are a domain translation engine. Rewrite the following "
@@ -427,7 +431,7 @@ def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
     try:
         req = urllib.request.Request(f"{base}/api/generate", data=body,
                                      headers={"Content-Type": "application/json"})
-        resp = urllib.request.urlopen(req, timeout=120)
+        resp = urllib.request.urlopen(req, timeout=timeout)
         response = json.loads(resp.read())["response"]
 
         json_start = response.rfind('\n{')
@@ -499,6 +503,211 @@ def decode_document(text_with_key, passphrase, backend="static",
     recovered = IdentEncoder.decode(recovered, ident_map)
 
     return recovered
+
+
+# ================================================================
+# SANITIZE MODE
+# ================================================================
+
+class Sanitizer:
+    """Parameterized abstraction for LLM analysis. No domain shift, no
+    readability requirement. Every content token becomes an opaque but
+    consistent label. Numeric values shift by a constant derived from
+    hash(input_text + timestamp_salt). Math is preserved. Identities
+    are gone.
+
+    The LLM sees ASSET_003, PARAM_007, SYS_012. It can reason about
+    relationships between them. It can't identify the physical system."""
+
+    CATEGORIES = {
+        "system": "SYS",
+        "asset": "ASSET",
+        "param": "PARAM",
+        "zone": "ZONE",
+        "role": "ROLE",
+        "action": "ACT",
+        "std": "STD",
+        "alert": "ALERT",
+        "log": "LOG",
+        "misc": "TOKEN",
+    }
+
+    TOKEN_CLASSES = OrderedDict([
+        ("system", [
+            "Modbus", "Modbus TCP", "Modbus RTU", "EtherNet/IP", "OPC UA",
+            "DNP3", "PROFINET", "PROFIBUS", "BACnet", "HART", "WirelessHART",
+            "S7comm", "GOOSE", "MMS", "Foundation Fieldbus", "SCADA", "DCS",
+            "PLC", "RTU", "IED",
+        ]),
+        ("asset", [
+            "reactor", "boiler", "turbine", "compressor", "pump", "valve",
+            "motor", "furnace", "vessel", "tank", "pipeline", "conveyor",
+            "generator", "transformer", "breaker", "switch", "relay",
+            "controller", "actuator", "sensor", "transmitter",
+        ]),
+        ("param", [
+            "pressure", "temperature", "flow", "level", "speed", "voltage",
+            "current", "frequency", "power", "torque", "vibration",
+            "humidity", "pH", "conductivity", "viscosity", "density",
+            "setpoint", "threshold", "interlock", "limit", "range",
+            "register", "registers", "coil", "coils", "holding register",
+        ]),
+        ("zone", [
+            "Level 0", "Level 1", "Level 2", "Level 3", "Level 4", "Level 5",
+            "DMZ", "perimeter", "zone", "conduit", "segment", "network",
+            "firewall", "gateway", "data diode", "jump host",
+        ]),
+        ("role", [
+            "operator", "engineer", "technician", "manager", "attacker",
+            "assessor", "auditor", "administrator", "vendor", "contractor",
+            "plant manager", "control engineer",
+        ]),
+        ("std", [
+            "IEC 62443", "IEC 61511", "IEC 61850", "ISO 27001", "ISO 22000",
+            "NIST 800-82", "NIST 800-53", "NERC CIP", "ISA 84", "ISA 99",
+            "ISA 62443",
+        ]),
+        ("alert", [
+            "alarm", "alert", "notification", "event", "trip", "fault",
+            "warning", "emergency", "shutdown",
+        ]),
+        ("log", [
+            "audit log", "event log", "change log", "history", "record",
+            "audit trail",
+        ]),
+    ])
+
+    def __init__(self):
+        self._label_counter = {}
+        self._token_map = {}
+        self._token_map_inv = {}
+
+    def _classify(self, token):
+        token_lower = token.lower()
+        for category, terms in self.TOKEN_CLASSES.items():
+            for term in terms:
+                if token_lower == term.lower():
+                    return category
+        return "misc"
+
+    def _get_label(self, token):
+        # Case-sensitive: 'assessor' and 'Assessor' get different labels
+        # so round-trip recovery preserves casing exactly.
+        if token in self._token_map:
+            return self._token_map[token]
+        category = self._classify(token)
+        prefix = self.CATEGORIES[category]
+        self._label_counter[prefix] = self._label_counter.get(prefix, 0) + 1
+        label = f"{prefix}_{self._label_counter[prefix]:03d}"
+        self._token_map[token] = label
+        self._token_map_inv[label] = token
+        return label
+
+    @staticmethod
+    def _derive_offset(text, salt):
+        h = hashlib.sha256(text.encode() + salt.encode()).digest()
+        raw = struct.unpack(">I", h[:4])[0]
+        return (raw % 9900) + 100
+
+    def sanitize(self, text, salt=None):
+        """Replace domain tokens with opaque labels and shift numerics
+        by a content-derived offset. Returns (sanitized_text, key_data)."""
+        import time
+        if salt is None:
+            salt = f"fc-{int(time.time() * 1000000)}"
+        offset = self._derive_offset(text, salt)
+
+        ident_enc = IdentEncoder()
+        processed, ident_map = ident_enc.encode(text)
+
+        all_terms = []
+        for terms in self.TOKEN_CLASSES.values():
+            all_terms.extend(terms)
+        all_terms.sort(key=len, reverse=True)
+
+        result = processed
+        used_positions = set()
+        replacements = []
+        for term in all_terms:
+            pattern = r'(?<!\w)' + re.escape(term) + r'(?!\w)'
+            for m in re.finditer(pattern, result, re.IGNORECASE):
+                s, e = m.start(), m.end()
+                if set(range(s, e)) & used_positions:
+                    continue
+                label = self._get_label(m.group())
+                replacements.append((s, e, label))
+                used_positions |= set(range(s, e))
+        replacements.sort(key=lambda x: x[0], reverse=True)
+        for s, e, label in replacements:
+            result = result[:s] + label + result[e:]
+
+        def shift_number(match):
+            original = match.group()
+            try:
+                if '.' in original:
+                    val = float(original)
+                    return f"{val + offset:.{len(original.split('.')[1])}f}"
+                return str(int(original) + offset)
+            except ValueError:
+                return original
+
+        result = re.sub(r'(?<![A-Z_a-z])\b\d+(?:\.\d+)?\b(?!_\d)',
+                        shift_number, result)
+
+        key_data = {
+            "v": "fc-sanitize-1.0",
+            "salt": salt,
+            "offset": offset,
+            "ident_map": ident_map,
+            "token_map": self._token_map_inv,
+            "stats": {
+                "tokens_replaced": len(self._token_map),
+                "identifiers_replaced": len(ident_map),
+                "numeric_offset": offset,
+            },
+        }
+        return result, key_data
+
+    @staticmethod
+    def desanitize(text, key_data):
+        """Recover original text from sanitized version + key."""
+        offset = key_data["offset"]
+        token_map_inv = key_data["token_map"]
+        ident_map = key_data["ident_map"]
+
+        # Unshift numerics first so numbers inside restored compound
+        # terms (e.g. "Level 1") are never touched by the unshift.
+        def unshift_number(match):
+            s = match.group()
+            try:
+                if '.' in s:
+                    val = float(s)
+                    return f"{val - offset:.{len(s.split('.')[1])}f}"
+                return str(int(s) - offset)
+            except ValueError:
+                return s
+
+        result = re.sub(r'(?<![A-Z_a-z])\b\d+(?:\.\d+)?\b(?!_\d)',
+                        unshift_number, text)
+
+        for label, original in sorted(token_map_inv.items(),
+                                       key=lambda x: len(x[0]), reverse=True):
+            result = result.replace(label, original)
+
+        result = IdentEncoder.decode(result, ident_map)
+        return result
+
+
+def sanitize_document(text, passphrase):
+    """Sanitize a document for LLM analysis. Returns embedded output."""
+    sanitized, key_data = Sanitizer().sanitize(text)
+    return embed_key(sanitized, key_data, passphrase)
+
+
+def desanitize_document(text_with_key, passphrase):
+    """Recover original from sanitized document."""
+    sanitized, key_data = extract_key(text_with_key, passphrase)
+    return Sanitizer.desanitize(sanitized, key_data)
 
 
 # ================================================================
@@ -968,6 +1177,19 @@ def main():
                     choices=["anthropic", "openai", "ollama", "mock"])
     x.add_argument("--model", default=None)
 
+    # sanitize
+    s = sub.add_parser("sanitize",
+        help="Strip identities, preserve math, for LLM analysis")
+    s.add_argument("--source", required=True)
+    s.add_argument("--passphrase", required=True)
+    s.add_argument("--output", required=True)
+
+    # desanitize
+    ds = sub.add_parser("desanitize", help="Recover from sanitized document")
+    ds.add_argument("--source", required=True)
+    ds.add_argument("--passphrase", required=True)
+    ds.add_argument("--output", required=True)
+
     # measure
     m = sub.add_parser("measure",
                         help="Compute Caudle Distance (SCD) of a cover "
@@ -1001,6 +1223,19 @@ def main():
 
     elif args.cmd == "proxy":
         proxy_chat(args.passphrase, args.topic, args.api, args.model)
+
+    elif args.cmd == "sanitize":
+        text = Path(args.source).read_text()
+        out = sanitize_document(text, args.passphrase)
+        Path(args.output).write_text(out)
+        print(f"[+] Sanitized: {args.source} -> {args.output}")
+        print(f"    Safe for LLM analysis. Math preserved. Identities gone.")
+
+    elif args.cmd == "desanitize":
+        text = Path(args.source).read_text()
+        out = desanitize_document(text, args.passphrase)
+        Path(args.output).write_text(out)
+        print(f"[+] Desanitized: {args.source} -> {args.output}")
 
     elif args.cmd == "measure":
         doc = Path(args.source).read_text()
