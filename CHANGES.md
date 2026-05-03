@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Evaluation harness v2: mapping-verification gate (samples 5 random `(src, tgt)` pairs and counts how many `tgt` substrings appear in the cover, exposing the silent "hallucinated mapping" failure mode), per-model prompt-prefix dict (qwen3 family gets `/no_think` injected via `OLLAMA_PROMPT_PREFIX`), n=10 trials per (model, doc).
+- `OLLAMA_PROMPT_PREFIX` environment variable: prepends the given string to every `llm_translate` prompt. Intended for model-specific directives like qwen3's `/no_think`.
+- Brewery corpus expanded ~3.3x by word count and ~5x by embedding vocab (782 -> 2560 words, 106 -> 517 unique tokens), four sub-genres (audit reports, brewmaster logs, regulatory submissions, trade press, brewing process reference). Gives Caudle Distance enough samples to discriminate.
+
+### Added
 - `evaluation/` directory with a formal local-model evaluation: harness, three sensitive test documents, brewery corpus, raw per-trial JSON, and a `RESULTS.md` writeup. Headline finding: `gemma3:4b` is the most consistent local model for the LLM backend, `llama3.2:3b` has the highest peak recovery but with 1.6x the variance, and qwen3 family is unsuitable in default thinking-mode settings.
 
 ### Added

@@ -406,10 +406,12 @@ DOMAINS = {
 def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
     """Use local LLM for domain translation. Returns (text, mapping).
 
-    Request timeout is configurable via OLLAMA_TIMEOUT (seconds, default 120).
-    Thinking-class models often need a longer timeout."""
+    OLLAMA_TIMEOUT (seconds, default 120) controls the request timeout.
+    OLLAMA_PROMPT_PREFIX is prepended to the prompt and is intended for
+    model-specific directives like qwen3's /no_think."""
     base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
+    prompt_prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
 
     if direction == "encode":
         prompt = (f"You are a domain translation engine. Rewrite the following "
@@ -424,6 +426,9 @@ def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
         prompt = (f"Reverse the following domain substitutions in this text. "
                   f"Apply these mappings:\n{json.dumps(text[1])}\n\n"
                   f"TEXT:\n{text[0]}")
+
+    if prompt_prefix:
+        prompt = prompt_prefix + prompt
 
     import urllib.request
     body = json.dumps({"model": model, "prompt": prompt, "stream": False,
