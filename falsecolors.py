@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Eris FALSECOLORS
-# Copyright (C) 2026 River Caudle, Riverman Enterprises
+# Copyright (C) 2026 River Caudle
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published
@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 #
-# Commercial use requires a separate license from Riverman Enterprises.
+# Commercial use requires a separate commercial license.
 
 """
 Eris FALSECOLORS - Standalone Proof of Concept

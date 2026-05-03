@@ -18,7 +18,7 @@ Full text: https://www.gnu.org/licenses/agpl-3.0.en.html
 
 ### Option 2: Commercial License
 
-A separate commercial license is available from Riverman Enterprises for use cases that cannot or do not wish to comply with the AGPL-3.0 requirements.
+A separate commercial license is available from the copyright holder for use cases that cannot or do not wish to comply with the AGPL-3.0 requirements.
 
 A commercial license is required for:
 
@@ -36,7 +36,7 @@ A commercial license is NOT required for:
 - Internal use where full AGPL-3.0 compliance is maintained (including network-interaction source disclosure)
 - Government or military use that maintains full AGPL-3.0 compliance
 
-For commercial licensing inquiries, contact Riverman Enterprises.
+For commercial licensing inquiries, contact the copyright holder.
 
 ## Prior Art Notice
 
@@ -46,11 +46,11 @@ The mathematical methods, theoretical framework, and architectural concepts desc
 2. Prevent future patenting of the described primitives by any party
 3. Establish priority for the Caudle Semantic Secrecy Theorem and the Caudle Distance
 
-The prior art publication is separate from the software license. Anyone may independently implement the methods described in the paper without any license obligation to Riverman Enterprises. The AGPL-3.0 and commercial license terms apply exclusively to this specific codebase and works derived from it, not to independent implementations of the underlying concepts.
+The prior art publication is separate from the software license. Anyone may independently implement the methods described in the paper without any license obligation to the author. The AGPL-3.0 and commercial license terms apply exclusively to this specific codebase and works derived from it, not to independent implementations of the underlying concepts.
 
 ## Copyright
 
-Copyright (C) 2026 River Caudle, Riverman Enterprises. All rights reserved.
+Copyright (C) 2026 River Caudle. All rights reserved.
 
 ---
 

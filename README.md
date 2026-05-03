@@ -148,14 +148,14 @@ The methods described in the paper are published as prior art to ensure they rem
 
 Free for personal, academic, research, and open-source use under AGPL-3.0 terms.
 
-Commercial use requires a separate commercial license from Riverman Enterprises. This includes incorporating FALSECOLORS into commercial products, offering it as part of a paid service, or deploying it in a closed-source environment without AGPL compliance.
+Commercial use requires a separate commercial license from the copyright holder. This includes incorporating FALSECOLORS into commercial products, offering it as part of a paid service, or deploying it in a closed-source environment without AGPL compliance.
 
 The underlying methods (as described in the paper) are published as prior art and are not subject to the software license. Anyone may independently implement the described concepts. The AGPL-3.0 applies to this specific codebase and its derivatives.
 
 ## Author
 
 River Caudle
-Riverman Enterprises
+
 ISA-99 Committee Member
 
 ---
