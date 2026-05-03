@@ -53,6 +53,7 @@ import json
 import re
 import sys
 import os
+import math
 import argparse
 import hashlib
 import base64
@@ -651,6 +652,146 @@ def _mock_response(msg):
 
 
 # ================================================================
+# CAUDLE DISTANCE (SCD)
+# ================================================================
+# Definition 2.15.2: SCD(D, X) = D_KL( TAD(D) || TAD(X) ).
+# TAD is the distribution of cos(e(t_i), e(t_{i+1})) over adjacent
+# content tokens, where e is a token embedding. The corpus serves as
+# both the embedding space (PPMI co-occurrence vectors) and the
+# reference distribution. Pure stdlib, no external models required.
+
+STOPWORDS = frozenset((
+    "a an the and or but if then so of to in on at by for with from as is "
+    "are was were be been being this that these those it its he she they "
+    "we you i me my our your their not no nor do does did have has had "
+    "will would should could may might can must about into over under "
+    "between than them him her us also such only just very more most some"
+).split())
+
+_TOKEN_RE = re.compile(r"[a-z][a-z0-9]+")
+
+
+def _tokenize_content(text):
+    return [t for t in _TOKEN_RE.findall(text.lower())
+            if t not in STOPWORDS and len(t) > 1]
+
+
+def _build_ppmi(tokens, window=2):
+    """Sparse PPMI vectors: token -> {context_token: ppmi}."""
+    cooc, total = {}, 0
+    n = len(tokens)
+    for i, w in enumerate(tokens):
+        lo, hi = max(0, i - window), min(n, i + window + 1)
+        for j in range(lo, hi):
+            if j == i:
+                continue
+            c = tokens[j]
+            row = cooc.setdefault(w, {})
+            row[c] = row.get(c, 0) + 1
+            total += 1
+    if total == 0:
+        return {}
+    margin = {w: sum(row.values()) for w, row in cooc.items()}
+    ppmi = {}
+    for w, row in cooc.items():
+        wm = margin[w]
+        out = {}
+        for c, n_wc in row.items():
+            cm = margin.get(c, 0)
+            if cm == 0 or wm == 0:
+                continue
+            pmi = math.log((n_wc * total) / (wm * cm))
+            if pmi > 0:
+                out[c] = pmi
+        if out:
+            ppmi[w] = out
+    return ppmi
+
+
+def _cosine(va, vb):
+    if not va or not vb:
+        return 0.0
+    common = set(va).intersection(vb)
+    if not common:
+        return 0.0
+    dot = sum(va[k] * vb[k] for k in common)
+    na = math.sqrt(sum(x * x for x in va.values()))
+    nb = math.sqrt(sum(x * x for x in vb.values()))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _adjacent_cosines(tokens, embeddings):
+    out = []
+    for a, b in zip(tokens, tokens[1:]):
+        if a in embeddings and b in embeddings:
+            out.append(_cosine(embeddings[a], embeddings[b]))
+    return out
+
+
+def _histogram(values, bins=50, lo=0.0, hi=1.0):
+    counts = [0] * bins
+    width = (hi - lo) / bins
+    for v in values:
+        if v < lo:
+            v = lo
+        elif v >= hi:
+            v = hi - 1e-12
+        counts[int((v - lo) / width)] += 1
+    return counts
+
+
+def _kl_smoothed(p_counts, q_counts, alpha=1.0):
+    k = len(p_counts)
+    pt = sum(p_counts) + alpha * k
+    qt = sum(q_counts) + alpha * k
+    s = 0.0
+    for pc, qc in zip(p_counts, q_counts):
+        p = (pc + alpha) / pt
+        q = (qc + alpha) / qt
+        s += p * math.log(p / q)
+    return s
+
+
+def caudle_distance(document_text, corpus_text, bins=50, window=2):
+    """Compute SCD(D, X) per Definition 2.15.2.
+
+    Cosine similarities are computed over PPMI vectors built from the
+    corpus. Histograms of adjacent-pair cosines are KL-compared with
+    Laplace smoothing.
+    """
+    corpus_tokens = _tokenize_content(corpus_text)
+    doc_tokens = _tokenize_content(document_text)
+    embeddings = _build_ppmi(corpus_tokens, window=window)
+
+    doc_cos = _adjacent_cosines(doc_tokens, embeddings)
+    cor_cos = _adjacent_cosines(corpus_tokens, embeddings)
+
+    result = {
+        "doc_tokens": len(doc_tokens),
+        "corpus_tokens": len(corpus_tokens),
+        "vocab": len(embeddings),
+        "doc_pairs": len(doc_cos),
+        "corpus_pairs": len(cor_cos),
+        "bins": bins,
+        "window": window,
+    }
+    if not doc_cos or not cor_cos:
+        result["scd"] = float("inf")
+        result["note"] = ("insufficient overlap between document and "
+                          "corpus vocabulary; expand the corpus")
+        return result
+
+    p = _histogram(doc_cos, bins=bins)
+    q = _histogram(cor_cos, bins=bins)
+    result["scd"] = _kl_smoothed(p, q)
+    result["doc_mean_cos"] = sum(doc_cos) / len(doc_cos)
+    result["corpus_mean_cos"] = sum(cor_cos) / len(cor_cos)
+    return result
+
+
+# ================================================================
 # DEMO
 # ================================================================
 
@@ -827,6 +968,18 @@ def main():
                     choices=["anthropic", "openai", "ollama", "mock"])
     x.add_argument("--model", default=None)
 
+    # measure
+    m = sub.add_parser("measure",
+                        help="Compute Caudle Distance (SCD) of a cover "
+                             "document against a native cover-domain corpus")
+    m.add_argument("--source", required=True, help="Cover document file")
+    m.add_argument("--corpus", required=True,
+                    help="Native cover-domain corpus file (plain text)")
+    m.add_argument("--bins", type=int, default=50,
+                    help="Histogram bins for the cosine TAD")
+    m.add_argument("--window", type=int, default=2,
+                    help="Context window for PPMI co-occurrence")
+
     # demo
     sub.add_parser("demo", help="Run full demonstration")
 
@@ -848,6 +1001,24 @@ def main():
 
     elif args.cmd == "proxy":
         proxy_chat(args.passphrase, args.topic, args.api, args.model)
+
+    elif args.cmd == "measure":
+        doc = Path(args.source).read_text()
+        corpus = Path(args.corpus).read_text()
+        r = caudle_distance(doc, corpus, bins=args.bins, window=args.window)
+        scd = r["scd"]
+        scd_str = "inf" if scd == float("inf") else f"{scd:.4f}"
+        print(f"Caudle Distance (SCD): {scd_str} nats")
+        print(f"  document tokens: {r['doc_tokens']}, "
+              f"adjacent pairs scored: {r['doc_pairs']}")
+        print(f"  corpus tokens:   {r['corpus_tokens']}, "
+              f"adjacent pairs scored: {r['corpus_pairs']}")
+        print(f"  shared embedding vocab: {r['vocab']}")
+        if "doc_mean_cos" in r:
+            print(f"  mean adjacent cosine: doc={r['doc_mean_cos']:.3f} "
+                  f"corpus={r['corpus_mean_cos']:.3f}")
+        if "note" in r:
+            print(f"  note: {r['note']}")
 
     elif args.cmd == "demo":
         demo()
