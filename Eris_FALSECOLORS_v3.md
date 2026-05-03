@@ -25,7 +25,7 @@ This paper introduces FALSECOLORS, a noncryptographic security primitive that pr
 
 The system comprises a pre-processing layer and four methods of increasing capability. The Identifier Encoding Layer separates technical identifiers from their operational context. Method 1 (Recolor) transforms documents through static vocabulary mapping. Method 2 (Split) distributes document vocabulary across multiple cover documents for multi-artifact security. Method 3 (Pad) enables persistent deniable communication channels through a reusable shared secret. Method 4 (Dynamic Shift) uses a local transformer model to perform domain translation with zero static tables, generating per-document mappings on the fly.
 
-A reference implementation is presented as an LLM middleware proxy that transparently encodes outbound queries and decodes inbound responses, enabling users to interact with frontier cloud AI systems while the cloud provider sees only innocuous cover-domain conversations. A simplified user interface reduces the entire system to three inputs (source text, passphrase, cover topic) producing a single self-contained output document with the encrypted mapping embedded.
+A reference implementation is presented as an LLM middleware proxy that transparently encodes outbound queries and decodes inbound responses, enabling users to interact with frontier cloud AI systems while the cloud provider sees only innocuous cover-domain conversations. A simplified user interface reduces the entire system to three inputs (source text, passphrase, cover topic) producing a single self-contained output document with the encrypted mapping embedded. A sanitize mode provides confidentiality without deniability, replacing all domain-specific tokens with opaque labels and shifting numeric values by a deterministic content-derived constant, enabling cloud LLM analysis of sensitive findings without exposing the identity of the system under assessment.
 
 The security basis is information-theoretic rather than computational. There is no ciphertext to attack. There is no encrypted container to identify. The protection is not a lock on a door. It is the absence of a door.
 
@@ -654,9 +654,79 @@ Recipient needs the cover document and the passphrase. That is the entire protoc
 
 ---
 
-## 10. Operational Considerations
+## 10. Sanitize Mode: Parameterized Abstraction
 
-### 10.1 Method Selection Guide
+### 10.1 Overview
+
+Sanitize mode addresses a different operational need than Methods 1 through 4. It does not provide plausible deniability. It provides confidentiality through parameterized abstraction: every domain-specific token is replaced with an opaque but consistent label, and every numeric value is shifted by a deterministic constant. The output is not readable as a document in any domain. It is readable as an abstract analytical structure that an LLM can reason over without identifying the physical system it describes.
+
+### 10.2 Token Parameterization
+
+Domain-specific content words are classified by type (system, asset, parameter, zone, role, standard, alert, log) and replaced with sequential opaque labels:
+
+    reactor       -> ASSET_001
+    pressure      -> PARAM_001
+    Modbus TCP    -> SYS_001
+    Level 1       -> ZONE_001
+    attacker      -> ROLE_001
+    IEC 61511     -> STD_001
+    alarm         -> ALERT_001
+    audit log     -> LOG_001
+
+Labels are case-sensitive and consistent within a document: every occurrence of "reactor" maps to ASSET_001. Different case forms ("Reactor" vs "reactor") receive distinct labels for exact round-trip recovery.
+
+Technical identifiers (IP addresses, register numbers, CVEs, measurements) are handled by the Identifier Encoding Layer before parameterization, using the same placeholder mechanism as the other methods.
+
+### 10.3 Numeric Shifting
+
+All numeric values in the document shift by a single constant derived from:
+
+    offset = hash(entire_input_text + timestamp_salt) mod 9900 + 100
+
+The full input text makes the offset document-specific. The timestamp salt (microsecond resolution) makes it unpredictable, even for the same document processed twice. The offset is not stored. Only the salt is stored in the key. At recovery time, the categorical labels are restored first, reconstructing the original text with placeholder numerics. The offset is then rederived from hash(recovered_text + stored_salt) and subtracted from all numeric values.
+
+Because the offset is constant across all values in a document, all additive mathematical relationships are preserved exactly:
+
+    Source:    setpoint 185 PSI, rated capacity 250 PSI, margin 65 PSI
+    Sanitized: setpoint 7910, rated capacity 7975, margin 65
+
+The LLM correctly identifies the margin as 65 units. It can reason about whether the margin is sufficient, whether the setpoint should be lowered, whether the rated capacity provides adequate safety factor. It reaches the same analytical conclusions as it would with the real values because the additive structure is invariant under constant shift.
+
+### 10.4 Cross-Document Security
+
+An adversary who knows one value (a public spec sheet states the vessel is rated at 250 PSI, they see 7975 in the sanitized version) can compute the offset by subtraction (7725) and decode all other numeric values in that document. This is an accepted limitation of constant-offset shifting.
+
+However, the offset is entangled with the document's content and salt. A different document about the same equipment produces a different offset (different input text). The same document processed with a different salt produces a different offset (different salt). The adversary cannot build a lookup table across documents. Each document is independently keyed by its own content plus a unique salt.
+
+### 10.5 What the LLM Sees
+
+    ROLE_003: River Caudle
+
+    During the assessment of the client's ASSET_001 control loop,
+    ROLE_004 identified that the Safety Instrumented System protecting
+    the ASSET_001 condition accepts unauthenticated SYS_001 writes to
+    PARAM_003 foxtrot through echo. These PARAM_003 control the
+    PARAM_002 setpoints for the ALERT_001 ASSET_003 on the ASSET_001
+    ASSET_002.
+
+    An ROLE_002 with ZONE_002 access to the ZONE_001 control ZONE_002
+    can modify the PARAM_002 from the engineered PARAM_005 of DELTA to
+    an arbitrary value without triggering any ALERT_003 or LOG_001
+    entry.
+
+The LLM can identify: an unauthenticated write path to a safety-critical parameter, a detection gap (no alerting on parameter changes), an access control failure (ROLE_002 can reach ZONE_001 without restriction), and a remediation path (authenticate SYS_001 writes, monitor PARAM_002 changes, restrict ZONE_002 access). It reaches these conclusions without knowing the protocol is Modbus, the asset is a reactor, the parameter is pressure, or the facility manufactures chemicals.
+
+### 10.6 Comparison to Domain Shift
+
+Domain shift (Methods 1-4) provides deniability: the output looks like a document about something else. Sanitize does not. The output is visibly parameterized. Anyone looking at it knows it has been processed. The protection is confidentiality, not deniability: the adversary knows something is being hidden but cannot determine what.
+
+Sanitize is appropriate when deniability is unnecessary and analytical utility is paramount. If the goal is "let the LLM analyze this finding without learning what system it describes," sanitize is the fastest and most reliable path. No domain mapping to build or maintain. No cover domain to select. No collocational naturalness concerns. The output is abstract by design.
+
+---
+
+## 11. Operational Considerations
+
+### 11.1 Method Selection Guide
 
 **Method 1 (Recolor):** Use for document-at-rest protection where offline operation and minimal infrastructure are primary requirements. Best for: archival storage of sensitive findings, email transmission, documents that may be subpoenaed.
 
@@ -667,6 +737,8 @@ Recipient needs the cover document and the passphrase. That is the entire protoc
 **Method 4 (Dynamic Shift):** Use for interactive cloud AI analysis of sensitive data where zero pre-configuration is acceptable and a local model is available. Best for: ad-hoc analytical queries, novel domains without pre-built mapping tables, situations where the cover domain may change frequently.
 
 **Simple Interface:** Use when the operator needs the fastest path from sensitive document to protected document with minimal cognitive overhead. Best for: individual practitioners, field operations, sharing findings with clients who will not install specialized software beyond a single script.
+
+**Sanitize:** Use when deniability is unnecessary and the goal is confidential LLM analysis. No domain mapping required. No cover domain selection. Output is visibly parameterized but analytically useful. Best for: feeding sensitive findings to cloud LLMs for vulnerability analysis, peer review of methodology without exposing target details, ticketing systems where the finding structure must be tracked but specifics protected.
 
 ### 10.2 Key Management
 
@@ -694,7 +766,7 @@ Recolor and Dynamic Shift can be chained. A document shifted from Domain A to B,
 
 ---
 
-## 11. Relationship to Existing Work
+## 12. Relationship to Existing Work
 
 **Codebooks and nomenclators** (historical cryptography): Substitute words using a fixed table. Vulnerable to frequency analysis because substitution does not preserve relational structure. FALSECOLORS preserves relational structure, producing cover text with natural statistical properties.
 
@@ -714,7 +786,7 @@ Recolor and Dynamic Shift can be chained. A document shifted from Domain A to B,
 
 ---
 
-## 12. Limitations
+## 13. Limitations
 
 Method 1 cover documents share structural patterns with the sensitive domain. An adversary suspecting domain transformation who knows the source domain could attempt inversion.
 
@@ -732,9 +804,11 @@ Response-side vocabulary coverage for Methods 1 and 3 requires mapping expansion
 
 The Simple Interface embeds an encrypted mapping as a base64 footer in the cover document. While the footer reads as a document tracking reference, its length is proportional to the mapping size. A deeply technical document with hundreds of unique domain terms can produce a footer that is disproportionately large relative to the cover text, which itself becomes a statistical signature: no legitimate brewery audit carries a 2KB tracking code. Three mitigations address this. First, the mapping can be compressed (gzip) before encryption, typically reducing size by 60-70% since JSON mapping tables contain repetitive structure. Second, for Method 4 (Dynamic Shift), the per-document mapping contains only the terms that actually appeared in the specific document, not the full domain vocabulary, keeping the mapping compact. Third, for documents where even a compressed footer is too large, the mapping should be stored as a separate encrypted file (.fckey) transmitted through a different channel than the cover document. The Simple Interface supports this as a fallback mode. The embedded footer is a convenience for the common case, not a requirement of the architecture.
 
+Sanitize mode provides confidentiality but not deniability. The output is visibly parameterized and an adversary immediately knows the document has been processed. The constant-offset numeric shift is vulnerable to known-value attacks within a single document: an adversary who knows one real value can compute the offset and decode all numeric values in that document. The content-derived hash prevents cross-document correlation but does not protect within a single document. For findings where even one numeric value might be publicly knowable, the numeric shift provides obfuscation rather than security. The categorical label mapping (which protects string identifiers) is not affected by this limitation.
+
 ---
 
-## 13. Future Work
+## 14. Future Work
 
 Automated mapping discovery from embedding space geometry, reducing manual curation for Methods 1 and 3. Extension of the distinguishing game (Section 2.16) to adaptive adversaries with oracle access to the transformation process. Full proofs of the results presented as proof sketches in this paper, with explicit treatment of the R-validity constraint on the key space. Empirical measurement of Caudle Distance across real domain pairs to validate the theoretical bounds. Extension to structured data formats (JSON, XML, protocol captures, PCAP files) beyond natural language. Development of standardized cover document libraries and mapping tables for common sensitive-domain/cover-domain pairs. Analysis of adversarial robustness against domain-aware inversion attempts with quantified resistance metrics. Integration of the Identifier Encoding Layer with MITRE ATT&CK for ICS identifier taxonomies. Exploration of multi-modal FALSECOLORS (applying domain shift to diagrams, network topology maps, and process flow documents alongside text). Benchmarking of Method 4 across local model sizes to establish minimum viable model parameters for adequate translation quality. Characterization of R-equivalence class sizes for representative document structures to provide concrete semantic entropy estimates.
 
@@ -755,9 +829,9 @@ Automated mapping discovery from embedding space geometry, reducing manual curat
 
 **Disclosure:** This work is published as prior art to ensure the described methods remain freely available to the security community. The author holds no patents or patent applications related to these methods and does not intend to file any. This publication is intended to prevent future patenting of the described primitive by any party.
 
-**License:** The accompanying reference implementation is released under the GNU Affero General Public License v3.0 (AGPL-3.0) with dual licensing. Commercial use of the codebase requires a separate commercial license from Riverman Enterprises. The methods described in this paper are published as prior art and may be independently implemented by anyone; the AGPL-3.0 license applies to the specific codebase, not to the underlying concepts.
+**License:** The accompanying reference implementation is released under the GNU Affero General Public License v3.0 (AGPL-3.0) with dual licensing. Commercial use of the codebase requires a separate commercial license from the copyright holder. The methods described in this paper are published as prior art and may be independently implemented by anyone; the AGPL-3.0 license applies to the specific codebase, not to the underlying concepts.
 
-**Copyright:** (C) 2026 River Caudle, Riverman Enterprises. All rights reserved for the reference implementation. The paper content is released for community review and comment.
+**Copyright:** (C) 2026 River Caudle. All rights reserved for the reference implementation. The paper content is released for community review and comment.
 
 ---
 
