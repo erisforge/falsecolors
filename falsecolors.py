@@ -58,8 +58,16 @@ import argparse
 import hashlib
 import base64
 import struct
+import random
 from collections import OrderedDict
 from pathlib import Path
+
+
+# Minimum fraction of sampled mapping entries that must appear in the cover.
+# If the LLM backend produces a ratio below this, a warning is printed to
+# stderr. Set to 0.0 to disable. Overridden to a hard error by --strict.
+MAPPING_VERIFY_THRESHOLD = 0.8
+MAPPING_VERIFY_SAMPLES = 5
 
 
 # ================================================================
@@ -460,6 +468,25 @@ def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
 
 
 # ================================================================
+# MAPPING VERIFICATION
+# ================================================================
+
+def verify_mapping_support(domain_map, cover_text, k=MAPPING_VERIFY_SAMPLES):
+    """Spot-check up to k random (src, tgt) pairs from domain_map against
+    cover_text. An entry is supported when tgt appears as a substring in the
+    lowercased cover. Returns (supported, sampled). sampled == 0 when there
+    are no non-identity entries to check."""
+    items = [(s, t) for s, t in domain_map.items()
+             if isinstance(s, str) and isinstance(t, str) and t and s != t]
+    if not items:
+        return 0, 0
+    sample = random.sample(items, min(k, len(items)))
+    cover_lower = cover_text.lower()
+    supported = sum(1 for _, t in sample if t.lower() in cover_lower)
+    return supported, len(sample)
+
+
+# ================================================================
 # LLM POLISH
 # ================================================================
 
@@ -500,8 +527,6 @@ def _polish_with_fallback(cover, mapping, topic, model):
     """Polish cover text and verify mapping integrity. Falls back to the
     original cover if polish fails or drops more than 20% of sampled
     mapping targets."""
-    import random
-
     polished = polish_cover(cover, mapping, topic, model)
     if polished is None:
         return cover
@@ -523,7 +548,8 @@ def _polish_with_fallback(cover, mapping, topic, model):
 # ================================================================
 
 def encode_document(text, passphrase, topic, backend="static",
-                     model="llama3.2:3b", extra_ident_terms=None, polish=False):
+                     model="llama3.2:3b", extra_ident_terms=None,
+                     polish=False, strict=False):
     """Full encode: ident strip -> domain shift -> embed key."""
     # Stage 1: Strip identifiers
     encoder = IdentEncoder()
@@ -534,6 +560,21 @@ def encode_document(text, passphrase, topic, backend="static",
         cover, domain_map = llm_translate(processed, topic, "encode", model)
         if polish:
             cover = _polish_with_fallback(cover, domain_map, topic, model)
+        supported, sampled = verify_mapping_support(domain_map, cover)
+        if sampled > 0:
+            ratio = supported / sampled
+            if ratio < MAPPING_VERIFY_THRESHOLD:
+                msg = (
+                    f"[!] WARNING: mapping verification failed "
+                    f"({supported}/{sampled} entries supported in cover).\n"
+                    f"[!] The model may have emitted a mapping that does not "
+                    f"match the substitutions in the cover.\n"
+                    f"[!] Round-trip recovery is likely to fail. "
+                    f"Inspect the output file before relying on it."
+                )
+                print(msg, file=sys.stderr)
+                if strict:
+                    sys.exit(1)
     else:
         if topic not in DOMAINS:
             print(f"[!] No built-in mapping for '{topic}'. Using 'brewery'.")
@@ -1231,6 +1272,9 @@ def main():
     e.add_argument("--polish", action="store_true",
                     help="Run a naturalness polish pass after LLM translation "
                          "(requires --backend llm; default off)")
+    e.add_argument("--strict", action="store_true",
+                    help="Treat mapping verification failure as a hard error "
+                         "(non-zero exit). Only relevant with --backend llm.")
 
     # decrypt
     d = sub.add_parser("decrypt", help="Decrypt a cover document")
@@ -1280,7 +1324,7 @@ def main():
         text = Path(args.source).read_text()
         out = encode_document(text, args.passphrase, args.topic,
                                args.backend, args.model,
-                               polish=args.polish)
+                               polish=args.polish, strict=args.strict)
         Path(args.output).write_text(out)
         print(f"[+] Encrypted: {args.source} -> {args.output}")
         print(f"    Recipient needs only the file + passphrase.")
