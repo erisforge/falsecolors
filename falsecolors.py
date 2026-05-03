@@ -145,7 +145,9 @@ class IdentEncoder:
     def _placeholder(self, original):
         if original in self._seen:
             return self._seen[original]
-        p = self.POOL[self._idx % len(self.POOL)]
+        base = self.POOL[self._idx % len(self.POOL)]
+        cycle = self._idx // len(self.POOL)
+        p = base if cycle == 0 else f"{base}{cycle + 1}"
         self._idx += 1
         self._seen[original] = p
         return p
