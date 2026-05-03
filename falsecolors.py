@@ -460,11 +460,70 @@ def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
 
 
 # ================================================================
+# LLM POLISH
+# ================================================================
+
+def polish_cover(cover_text, mapping, topic, model):
+    """Ask the LLM to rewrite the cover for naturalness while preserving
+    every cover-domain term in the mapping. Returns polished text or None
+    on any failure. Temperature 0.3 permits stylistic variation without
+    hallucinating domain substitutions."""
+    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
+    prompt_prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
+
+    terms = ", ".join(str(v) for v in mapping.values() if v)
+    prompt = (f"You are an editor. Rewrite the following text to read more "
+              f"naturally as a document about: {topic}\n\n"
+              f"Preserve every term from this list exactly as written, "
+              f"do not paraphrase or remove them:\n{terms}\n\n"
+              f"TEXT:\n{cover_text}\n\n"
+              f"Output ONLY the rewritten text. No commentary.")
+
+    if prompt_prefix:
+        prompt = prompt_prefix + prompt
+
+    import urllib.request
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
+                        "options": {"temperature": 0.3}}).encode()
+    try:
+        req = urllib.request.Request(f"{base}/api/generate", data=body,
+                                     headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        result = json.loads(resp.read())["response"].strip()
+        return result if result else None
+    except Exception:
+        return None
+
+
+def _polish_with_fallback(cover, mapping, topic, model):
+    """Polish cover text and verify mapping integrity. Falls back to the
+    original cover if polish fails or drops more than 20% of sampled
+    mapping targets."""
+    import random
+
+    polished = polish_cover(cover, mapping, topic, model)
+    if polished is None:
+        return cover
+
+    pairs = [(src, tgt) for src, tgt in mapping.items() if src != tgt and tgt]
+    if pairs:
+        sample = random.sample(pairs, min(5, len(pairs)))
+        hits = sum(1 for _, tgt in sample if tgt.lower() in polished.lower())
+        if hits < len(sample) * 0.8:
+            print("[!] Polish degraded mapping coverage; using unpolished cover.",
+                  file=sys.stderr)
+            return cover
+
+    return polished
+
+
+# ================================================================
 # CORE PIPELINE
 # ================================================================
 
 def encode_document(text, passphrase, topic, backend="static",
-                     model="llama3.2:3b", extra_ident_terms=None):
+                     model="llama3.2:3b", extra_ident_terms=None, polish=False):
     """Full encode: ident strip -> domain shift -> embed key."""
     # Stage 1: Strip identifiers
     encoder = IdentEncoder()
@@ -473,6 +532,8 @@ def encode_document(text, passphrase, topic, backend="static",
     # Stage 2: Domain shift
     if backend == "llm":
         cover, domain_map = llm_translate(processed, topic, "encode", model)
+        if polish:
+            cover = _polish_with_fallback(cover, domain_map, topic, model)
     else:
         if topic not in DOMAINS:
             print(f"[!] No built-in mapping for '{topic}'. Using 'brewery'.")
@@ -1167,6 +1228,9 @@ def main():
     e.add_argument("--output", required=True, help="Output file")
     e.add_argument("--backend", default="static", choices=["static", "llm"])
     e.add_argument("--model", default="llama3.2:3b")
+    e.add_argument("--polish", action="store_true",
+                    help="Run a naturalness polish pass after LLM translation "
+                         "(requires --backend llm; default off)")
 
     # decrypt
     d = sub.add_parser("decrypt", help="Decrypt a cover document")
@@ -1215,7 +1279,8 @@ def main():
     if args.cmd == "encrypt":
         text = Path(args.source).read_text()
         out = encode_document(text, args.passphrase, args.topic,
-                               args.backend, args.model)
+                               args.backend, args.model,
+                               polish=args.polish)
         Path(args.output).write_text(out)
         print(f"[+] Encrypted: {args.source} -> {args.output}")
         print(f"    Recipient needs only the file + passphrase.")
