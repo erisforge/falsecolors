@@ -414,6 +414,54 @@ DOMAINS = {
 LLM_TWO_STEP = True
 
 
+def _parse_mapping_response(raw):
+    """Tolerant parser for a model's mapping JSON. Accepts either a single
+    flat object {"src": "tgt", ...} or a list-of-pairs shape
+    [{"original": "x", "replacement": "y"}, ...] (with or without array
+    brackets), and returns a flat dict. Returns {} on any parse failure."""
+    if not raw:
+        return {}
+    s = raw.strip().strip('`')
+    if s.startswith('json'):
+        s = s[4:].strip()
+
+    obj_start = s.find('{')
+    obj_end = s.rfind('}')
+    if obj_start == -1 or obj_end == -1:
+        return {}
+    body = s[obj_start:obj_end + 1]
+
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict) and all(
+                isinstance(k, str) and isinstance(v, str)
+                for k, v in parsed.items()):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        wrapped = '[' + body + ']'
+        parsed = json.loads(wrapped)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, list):
+        return {}
+    out = {}
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        if 'original' in entry and 'replacement' in entry:
+            k, v = entry['original'], entry['replacement']
+        elif len(entry) == 1:
+            (k, v), = entry.items()
+        else:
+            continue
+        if isinstance(k, str) and isinstance(v, str) and k:
+            out[k] = v
+    return out
+
+
 def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
     """Use local LLM for domain translation. Returns (text, mapping).
 
@@ -451,26 +499,19 @@ def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
             prompt1 = (
                 f"You are a domain translation engine. Identify every "
                 f"domain-specific term in the SOURCE text below that should "
-                f"be replaced with a {topic}-domain equivalent. Output a JSON "
-                f"object on a single line mapping each original term to its "
-                f"{topic} replacement: {{\"original\": \"replacement\", ...}}\n\n"
-                f"Output ONLY the JSON object. No prose, no markdown, no "
-                f"commentary.\n\n"
+                f"be replaced with a {topic}-domain equivalent. Output a "
+                f"single flat JSON object whose keys are the original terms "
+                f"and whose values are their {topic} replacements.\n\n"
+                f"Example for an OT-to-brewery rewrite (illustrative, not "
+                f"the source you are working on):\n"
+                f"{{\"reactor\": \"fermenter\", \"Modbus TCP\": \"Brewery "
+                f"Protocol\", \"holding register\": \"recipe parameter\"}}\n\n"
+                f"Output ONLY the single JSON object. No prose, no markdown, "
+                f"no commentary, no array wrapper, no per-entry objects.\n\n"
                 f"SOURCE:\n{text}"
             )
             raw1 = _call(prompt1)
-
-            mapping = {}
-            raw1_stripped = raw1.strip().strip('`')
-            if raw1_stripped.startswith('json'):
-                raw1_stripped = raw1_stripped[4:].strip()
-            json_start = raw1_stripped.find('{')
-            json_end = raw1_stripped.rfind('}')
-            if json_start != -1 and json_end != -1:
-                try:
-                    mapping = json.loads(raw1_stripped[json_start:json_end + 1])
-                except json.JSONDecodeError:
-                    pass
+            mapping = _parse_mapping_response(raw1)
 
             prompt2 = (
                 f"You are a domain translation engine. Rewrite the SOURCE "
