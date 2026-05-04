@@ -6,6 +6,8 @@
 
 ---
 
+FALSECOLORS is for anyone who needs to openly carry or publish text with a hidden message. Encryption hides content but signals that something is being hidden. FALSECOLORS produces a cover document that reads as legitimate text in an unrelated domain, recoverable to the original only with a passphrase.
+
 ## The Problem
 
 Encryption protects data but advertises its value. A password-protected archive, an encrypted disk image, or a PGP file all signal to an adversary that something worth protecting is inside. In litigation discovery, device seizure, cloud storage compromise, or nation-state surveillance, the presence of encryption attracts exactly the attention it was meant to prevent.

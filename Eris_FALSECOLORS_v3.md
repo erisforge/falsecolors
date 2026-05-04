@@ -21,7 +21,7 @@
 
 ## Abstract
 
-This paper introduces FALSECOLORS, a noncryptographic security primitive that protects sensitive textual documents through structure-preserving semantic domain transformation. Unlike encryption, which renders data incomprehensible and thereby signals its value, FALSECOLORS produces output that is fully comprehensible, domain-coherent, and self-consistent in an unrelated cover domain. The sensitive content is recoverable only through possession of compact key artifacts. Without the keys, cover documents stand alone as legitimate documents in their surface domains, with no statistical, structural, or information-theoretic signal that another reading exists.
+This paper introduces FALSECOLORS, a noncryptographic security primitive for anyone who needs to openly carry or publish text with a hidden message. It protects sensitive textual documents through structure-preserving semantic domain transformation. Unlike encryption, which renders data incomprehensible and thereby signals its value, FALSECOLORS produces output that is fully comprehensible, domain-coherent, and self-consistent in an unrelated cover domain. The sensitive content is recoverable only through possession of compact key artifacts. Without the keys, cover documents stand alone as legitimate documents in their surface domains, with no statistical, structural, or information-theoretic signal that another reading exists.
 
 The system comprises a pre-processing layer and four methods of increasing capability. The Identifier Encoding Layer separates technical identifiers from their operational context. Method 1 (Recolor) transforms documents through static vocabulary mapping. Method 2 (Split) distributes document vocabulary across multiple cover documents for multi-artifact security. Method 3 (Pad) enables persistent deniable communication channels through a reusable shared secret. Method 4 (Dynamic Shift) uses a local transformer model to perform domain translation with zero static tables, generating per-document mappings on the fly.
 
@@ -287,13 +287,15 @@ where e(t) is the embedding vector of token t.
 
 The TAD captures collocational structure: tokens that naturally co-occur in a domain produce characteristic similarity patterns. In brewing text, "fermentation" and "vessel" co-occur frequently and have high cosine similarity. In OT text, "reactor" and "vessel" co-occur with a different similarity value.
 
-**Definition 2.15.2 (Caudle Distance).** The Caudle Distance (denoted SCD for Semantic Coherence Distance in formulas) between a document D and a reference corpus X of native documents in domain B is:
+**Definition 2.15.2 (Caudle Distance, also Native-Text Drift).** The Caudle Distance (denoted SCD for Semantic Coherence Distance in formulas; descriptive alias **Native-Text Drift**) between a document D and a reference corpus X of native documents in domain B is:
 
     SCD(D, X) = D_KL( TAD(D) || TAD(X) )
 
 where D_KL is the Kullback-Leibler divergence between the token adjacency distributions.
 
 If SCD(D, X) = 0, the document D has the same collocational statistics as native documents in domain B. It is statistically indistinguishable from native text. If SCD(D, X) > 0, there is a measurable statistical difference that could be exploited by an adversary.
+
+*Informally: how much the cover document reads like an outsider trying to write in the cover domain rather than a practitioner native to it. Zero means it reads exactly like the real thing; large values mean a domain expert would squint at it.*
 
 **Theorem 2.15.3 (Caudle Distance preservation under perfect isomorphism).** If the domain isomorphism M perfectly preserves all pairwise cosine similarities (i.e., cos(e(M(t_i)), e(M(t_j))) = cos(e(t_i), e(t_j)) for all token pairs), and the source document D_a is native to domain A, then:
 
@@ -305,11 +307,35 @@ where X_A and X_B are reference corpora for domains A and B respectively.
 
 **Practical implication.** The Caudle Distance is the measurable quantity that determines an adversary's detection advantage. For Method 1 (Recolor) with static mapping, the Caudle Distance depends on how well the curated mapping preserves collocational statistics. For Method 4 (Dynamic Shift), the local LLM generates native prose, so the Caudle Distance approaches zero by construction. The LLM polish step in Method 1 functions specifically to reduce the Caudle Distance toward zero.
 
-### 2.16 The Distinguishing Game
+### 2.16 The Rinaldi Distance
+
+The Caudle Distance measures whether the cover document is statistically indistinguishable from native cover-domain text. It does not measure whether the per-document mapping the translator emits is a truthful record of the substitutions actually performed. For Method 4, where a single model both produces the cover and self-reports the mapping in one pass, these are independent failure surfaces. The Rinaldi Distance formalizes the second.
+
+**Definition 2.16.1 (Claimed and Empirical Mappings).** For a Method 4 encode pass on source document D producing cover document C and emitted mapping JSON M_claimed, the **claimed mapping** is the set of (src, tgt) pairs the model self-reports. The **empirical mapping** M_empirical is the set of (src, tgt) pairs recoverable by aligning D to C and observing the substitutions actually present in the cover.
+
+**Definition 2.16.2 (Rinaldi Distance, also Self-Report Gap).** The Rinaldi Distance between the claimed and empirical mappings is:
+
+    RD(M_claimed, M_empirical) = D_KL( P(M_empirical) || P(M_claimed) )
+
+taken over the joint distribution of (src, tgt) pairs in the union of both mappings. A scalar approximation suitable for production gating is the symmetric Jaccard distance over the pair sets:
+
+    RD_J = 1 - |M_claimed ∩ M_empirical| / |M_claimed ∪ M_empirical|
+
+*Informally: how much the model lies to itself (and you) about what it just did. Zero means every claimed substitution is actually present in the cover and every substitution actually present in the cover is claimed. Large values mean the emitted mapping JSON is decoupled from the cover prose.*
+
+**Observation 2.16.3 (Methods 1 and 3 are RD-zero by construction).** Static methods use a single mapping table that is both the instruction to the encoder and the record consulted by the decoder. There is no opportunity for divergence between claim and reality. The Rinaldi Distance is meaningful only for Method 4 and any future method that allows the translator to self-report what it did rather than executing a pre-committed table.
+
+**Observation 2.16.4 (Two-step prompts collapse RD).** Decomposing the Method 4 encode prompt into two calls (Call 1 emits the mapping; Call 2 performs the rewrite constrained by that fixed mapping) eliminates the introspection task ("what did I just do?") and replaces it with an extraction task ("substitute according to this fixed table"). Extraction is reachable for parameter counts at which faithful introspection is not. Empirically (Section 7.9 and `evaluation/RESULTS.md`), the v3 two-step prompt reduced RD_J on `qwen3:1.7b` from approximately 0.99 to approximately 0.14 on the same eval cohort, with similar collapses on the other models in the band.
+
+**Observation 2.16.5 (Caudle Distance and Rinaldi Distance are independent).** A model can produce a cover with low Native-Text Drift and high Self-Report Gap (the cover reads natively but the mapping is fabricated), or a cover with high Native-Text Drift and low Self-Report Gap (the cover reads as translated prose but the mapping is honest). Production deployment of Method 4 must measure both. The current reference implementation's `verify_mapping_support` gate is a low-cost spot-check approximation of RD_J; the `--strict` flag converts the warning into a hard error suitable for automation.
+
+**Observation 2.16.6 (Round-Trip Loss as the user-visible symptom).** The end-user quality metric is **Round-Trip Loss**: encode a document, decode it, and measure the fraction of source tokens that fail to recover. Round-Trip Loss is what the operator observes; Native-Text Drift and Self-Report Gap are diagnostics that explain *why* it is high in any given trial. A high Self-Report Gap produces Round-Trip Loss directly because the decode step uses a mapping that does not match the cover. A high Native-Text Drift produces Round-Trip Loss indirectly when the cover provokes cloud-LLM responses using cover-domain vocabulary not covered by the inverse mapping. Round-Trip Loss is what the user feels; the other two are what the engineer fixes.
+
+### 2.17 The Distinguishing Game
 
 The security of FALSECOLORS can be formalized as a distinguishing game in the standard cryptographic model.
 
-**Game 2.16.1 (Semantic Distinguishing Game).** Challenger C and adversary A play the following game:
+**Game 2.17.1 (Semantic Distinguishing Game).** Challenger C and adversary A play the following game:
 
 1. **Setup.** C selects a domain pair (T_a, T_b), a relational graph G, and a domain isomorphism M from S(G, T_a, T_b). C prepares a source document D = (G, L_a) and a cover document C_doc = (G, M ∘ L_a). C also selects a native document N = (G', L_b) drawn from the natural distribution of documents in domain B.
 
@@ -317,33 +343,33 @@ The security of FALSECOLORS can be formalized as a distinguishing game in the st
 
 3. **Decision.** A outputs a guess b'. A wins if b' = b.
 
-**Definition 2.16.2 (Semantic Distinguishing Advantage).** The advantage of adversary A is:
+**Definition 2.17.2 (Semantic Distinguishing Advantage).** The advantage of adversary A is:
 
     Adv(A) = | P(b' = 1 | b = 1) - P(b' = 1 | b = 0) |
 
 If Adv(A) = 0, A cannot distinguish cover documents from native documents. If Adv(A) = 1, A can always distinguish.
 
-**Theorem 2.16.3 (Advantage bound).** For any adversary A, the distinguishing advantage is bounded by the statistical distance between the cover document distribution and the native document distribution:
+**Theorem 2.17.3 (Advantage bound).** For any adversary A, the distinguishing advantage is bounded by the statistical distance between the cover document distribution and the native document distribution:
 
     Adv(A) ≤ SD( P(C_doc) || P(N) )
 
 where SD is the total variation distance between the two distributions.
 
-**Corollary 2.16.4.** If the domain isomorphism M is such that the cover document distribution is identical to the native document distribution (Caudle Distance = 0 and all higher-order statistics match), then Adv(A) = 0 for all adversaries, including computationally unbounded adversaries. The security is information-theoretic, not computational.
+**Corollary 2.17.4.** If the domain isomorphism M is such that the cover document distribution is identical to the native document distribution (Caudle Distance = 0 and all higher-order statistics match), then Adv(A) = 0 for all adversaries, including computationally unbounded adversaries. The security is information-theoretic, not computational.
 
-**Corollary 2.16.5.** For Method 4 (Dynamic Shift), where the local LLM generates native prose in the cover domain, the cover document is drawn from the LLM's own output distribution for the cover domain, which is (by the training objective) an approximation of the native document distribution. The adversary's advantage is bounded by the LLM's distribution matching quality, which improves with model scale.
+**Corollary 2.17.5.** For Method 4 (Dynamic Shift), where the local LLM generates native prose in the cover domain, the cover document is drawn from the LLM's own output distribution for the cover domain, which is (by the training objective) an approximation of the native document distribution. The adversary's advantage is bounded by the LLM's distribution matching quality, which improves with model scale.
 
-**Corollary 2.16.6 (Composability of advantage).** For a chained transformation D -> C_1 -> C_2 where C_1 = M_1(D) and C_2 = M_2(C_1), the adversary who observes C_2 and must determine whether it originated from D or from some other source faces two layers of the distinguishing game. The overall advantage is bounded by the minimum of the two individual advantages: Adv_chain ≤ min(Adv_1, Adv_2). The weakest layer determines the ceiling; the chain is at least as strong as its strongest layer.
+**Corollary 2.17.6 (Composability of advantage).** For a chained transformation D -> C_1 -> C_2 where C_1 = M_1(D) and C_2 = M_2(C_1), the adversary who observes C_2 and must determine whether it originated from D or from some other source faces two layers of the distinguishing game. The overall advantage is bounded by the minimum of the two individual advantages: Adv_chain ≤ min(Adv_1, Adv_2). The weakest layer determines the ceiling; the chain is at least as strong as its strongest layer.
 
-### 2.17 Relationship to Shannon's Communication Theory
+### 2.18 Relationship to Shannon's Communication Theory
 
 Shannon's 1949 paper established perfect secrecy for encryption of symbol strings. The result is stated for arbitrary alphabets but assumes that the message space, key space, and ciphertext space consist of strings over those alphabets. The message is treated as a sequence of symbols with no assumed structure beyond their sequential order.
 
 FALSECOLORS operates on a fundamentally different object: labeled relational graphs, not symbol strings. The "message" is not a string of tokens but a graph of semantic relationships with tokens as labels. The "key" is not a random string but a structure-preserving mapping between label sets. The "ciphertext" is not an incomprehensible encoding but a fully comprehensible re-labeling.
 
-The results in Sections 2.13 through 2.16 extend Shannon's framework to this richer object class. The core mathematical mechanism (conditioning on the key transforms the posterior to equal the prior) is the same. The objects it operates on and the properties it preserves are new.
+The results in Sections 2.13 through 2.17 extend Shannon's framework to this richer object class. The core mathematical mechanism (conditioning on the key transforms the posterior to equal the prior) is the same. The objects it operates on and the properties it preserves are new.
 
-This extension is nontrivial for two reasons. First, the structure-preservation constraint (the mapping must maintain R-validity across all relational edges) restricts the key space S in ways that have no analogue in symbol-string encryption, where any permutation is a valid key. The Caudle Theorem must account for this constraint. Second, the deniability property (the "ciphertext" is itself a valid, meaningful document) has no analogue in Shannon's framework, where ciphertext is by construction meaningless. The distinguishing game (Section 2.16) formalizes this additional property that Shannon's model does not address.
+This extension is nontrivial for two reasons. First, the structure-preservation constraint (the mapping must maintain R-validity across all relational edges) restricts the key space S in ways that have no analogue in symbol-string encryption, where any permutation is a valid key. The Caudle Theorem must account for this constraint. Second, the deniability property (the "ciphertext" is itself a valid, meaningful document) has no analogue in Shannon's framework, where ciphertext is by construction meaningless. The distinguishing game (Section 2.17) formalizes this additional property that Shannon's model does not address. The Rinaldi Distance (Section 2.16) formalizes a third property with no Shannon analogue: the integrity of the translator's self-report when the translator and the encoder are the same agent, which is unique to Method 4 and does not arise in classical encryption where the key is external to the encoding process.
 
 ---
 
@@ -543,9 +569,9 @@ The mapping can be destroyed after the sensitive content is recovered. If the ma
 
 A formal evaluation of Method 4 with the public reference prompt was conducted across six local models in the 1.7B-8B parameter band (`llama3.2:3b`, `qwen3:1.7b`, `phi3:mini`, `gemma3:4b`, `mistral:7b-instruct`, `llama3.1:8b`), three sensitive OT/ICS pentest findings of varying identifier density, and n=10 trials per (model, document) combination. Total: 180 round-trip encode/decode pairs. The harness, raw per-trial data, native cover-domain corpus, and full writeup are in the `evaluation/` directory of the reference implementation under `results-v2.json` and `RESULTS.md`. Headline findings relevant to the theory:
 
-**Caudle Distance is observable but not yet discriminating across models in this band.** All six models produced covers with SCD against a 2,560-word native brewery corpus in the range 0.94-1.30 nats. The cohort spans four orders of magnitude in mapping correctness (1% to 95% verified entries) and a factor of four in mean recovery (0.146 to 0.703), but the SCD distribution is comparatively narrow. The interpretation is that the gap between the worst cohort cover and a hypothetical perfect cover (SCD ≈ 0) is roughly an order of magnitude, and no model in this band is close enough to that target for SCD to discriminate among them. SCD becomes operationally useful as a model-discrimination metric only once a polish step (Section 4.4) lifts cover quality into the [0.1, 0.5] nat range, where the variance is observable.
+**Caudle Distance (Native-Text Drift) is observable but not yet discriminating across models in this band.** All six models produced covers with SCD against a 2,560-word native brewery corpus in the range 0.94-1.30 nats. The cohort spans four orders of magnitude in mapping correctness (1% to 95% verified entries) and a factor of four in mean recovery (0.146 to 0.703), but the SCD distribution is comparatively narrow. The interpretation is that the gap between the worst cohort cover and a hypothetical perfect cover (SCD ≈ 0) is roughly an order of magnitude, and no model in this band is close enough to that target for SCD to discriminate among them. SCD becomes operationally useful as a model-discrimination metric only once a polish step (Section 4.4) lifts cover quality into the [0.1, 0.5] nat range, where the variance is observable.
 
-**The mapping-emission contract has a silent integrity failure mode.** A non-trivial fraction of trials produce a mapping JSON that parses but does not correspond to the substitutions the model actually made in the cover. The model's apparent willingness to emit any plausibly-shaped mapping creates a class of trials that pass surface validity checks (JSON parses, entries are well-typed strings, mapping size is nonzero) but yield zero or near-zero round-trip recovery. The eval harness's response is a spot-check pass that samples k random `(src, tgt)` pairs from the emitted mapping and verifies `tgt` substring presence in the cover; trials with low support ratio are flagged. This check is independent of the cryptographic soundness of the encoding pipeline and operates at the level of the LLM's compliance with the prompt contract.
+**The mapping-emission contract has a silent integrity failure mode (formalized in Section 2.16 as the Rinaldi Distance / Self-Report Gap).** A non-trivial fraction of trials produce a mapping JSON that parses but does not correspond to the substitutions the model actually made in the cover. The model's apparent willingness to emit any plausibly-shaped mapping creates a class of trials that pass surface validity checks (JSON parses, entries are well-typed strings, mapping size is nonzero) but yield zero or near-zero round-trip recovery. The eval harness's response is a spot-check pass that samples k random `(src, tgt)` pairs from the emitted mapping and verifies `tgt` substring presence in the cover; trials with low support ratio are flagged. This check is independent of the cryptographic soundness of the encoding pipeline and operates at the level of the LLM's compliance with the prompt contract.
 
 **Bimodal model behavior is observable.** At least one model (mistral:7b-instruct) on the highest-identifier-density test document produced a clearly bimodal recovery distribution: trials with mapping_size = 2 cluster at recovery_ratio in [0.086, 0.123] (minimal-rewrite, low recovery); trials with mapping_size > 10 cluster at [0.338, 0.759] (substantial-rewrite, moderate recovery). The two modes do not overlap. The mean recovery for that cell is 0.440 ± 0.310, where neither mean nor stdev is informative. Method 4 evaluation must therefore use trial-level distributions rather than summary statistics; the eval harness reports `P(recovery ≥ 0.95)` and `P(recovery < 0.30)` as the operationally relevant tail estimates.
 
@@ -828,7 +854,7 @@ Sanitize mode provides confidentiality but not deniability. The output is visibl
 
 A first-pass empirical evaluation of Method 4 across local models in the 1.7B-8B parameter band has been completed (Section 7.9, with full data and methodology in `evaluation/RESULTS.md` of the reference implementation); it confirms that the SCD framework is computable on real cover-corpus pairs but that the corpus-quality ceiling and the model-quality ceiling currently bound the discrimination range to roughly 0.9-1.3 nats. Closing the loop on theoretical bounds requires either better models, a polish-step pipeline, or both, and is the most immediate open item.
 
-Open work beyond the empirical baseline: automated mapping discovery from embedding space geometry, reducing manual curation for Methods 1 and 3. Extension of the distinguishing game (Section 2.16) to adaptive adversaries with oracle access to the transformation process. Full proofs of the results presented as proof sketches in this paper, with explicit treatment of the R-validity constraint on the key space. Extension of the empirical evaluation across larger native corpora and to a 13B+ reference model to characterize the SCD curve as a function of model size and corpus depth. Two-step prompt design separating cover rewrite from mapping emission, hypothesized to resolve the bimodal recovery distribution observed in the small-model evaluation. Polish-step pipeline (run cover through second LLM call for naturalness, re-verify mapping support) as the engineering work that would lift Method 4 from research-grade to production-grade. Extension to structured data formats (JSON, XML, protocol captures, PCAP files) beyond natural language. Development of standardized cover document libraries and mapping tables for common sensitive-domain/cover-domain pairs. Analysis of adversarial robustness against domain-aware inversion attempts with quantified resistance metrics. Integration of the Identifier Encoding Layer with MITRE ATT&CK for ICS identifier taxonomies. Exploration of multi-modal FALSECOLORS (applying domain shift to diagrams, network topology maps, and process flow documents alongside text). Characterization of R-equivalence class sizes for representative document structures to provide concrete semantic entropy estimates.
+Open work beyond the empirical baseline: automated mapping discovery from embedding space geometry, reducing manual curation for Methods 1 and 3. Extension of the distinguishing game (Section 2.17) to adaptive adversaries with oracle access to the transformation process. Full proofs of the results presented as proof sketches in this paper, with explicit treatment of the R-validity constraint on the key space. Extension of the empirical evaluation across larger native corpora and to a 13B+ reference model to characterize the SCD curve as a function of model size and corpus depth. Two-step prompt design separating cover rewrite from mapping emission, hypothesized to resolve the bimodal recovery distribution observed in the small-model evaluation. Polish-step pipeline (run cover through second LLM call for naturalness, re-verify mapping support) as the engineering work that would lift Method 4 from research-grade to production-grade. Extension to structured data formats (JSON, XML, protocol captures, PCAP files) beyond natural language. Development of standardized cover document libraries and mapping tables for common sensitive-domain/cover-domain pairs. Analysis of adversarial robustness against domain-aware inversion attempts with quantified resistance metrics. Integration of the Identifier Encoding Layer with MITRE ATT&CK for ICS identifier taxonomies. Exploration of multi-modal FALSECOLORS (applying domain shift to diagrams, network topology maps, and process flow documents alongside text). Characterization of R-equivalence class sizes for representative document structures to provide concrete semantic entropy estimates.
 
 ---
 
