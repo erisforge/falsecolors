@@ -110,7 +110,7 @@ def _call_anthropic(prompt, model, max_tokens=1024, timeout=60):
     return data["content"][0]["text"]
 
 
-def _call_gemini(prompt, model, max_tokens=1024, timeout=60):
+def _call_gemini(prompt, model, max_tokens=4096, timeout=60):
     """Call Google Gemini generateContent. Reads GEMINI_API_KEY (or
     GOOGLE_API_KEY)."""
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
@@ -145,11 +145,11 @@ def _call_groq(prompt, model, max_tokens=1024, timeout=60):
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
     }).encode()
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
+        "User-Agent": "eris-falsecolors-lach/0.1",
     }
     req = urllib.request.Request(url, data=body, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
