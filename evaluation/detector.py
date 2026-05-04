@@ -30,6 +30,15 @@ import urllib.request
 DEFAULT_MODEL = "claude-opus-4-7"
 DEFAULT_API = "anthropic"
 
+# Recommended models per provider for the detector role. Frontier
+# choices first; cheaper / faster fallbacks second.
+PROVIDER_DEFAULTS = {
+    "anthropic": "claude-opus-4-7",
+    "gemini": "gemini-2.5-pro",
+    "groq": "llama-3.3-70b-versatile",
+    "openai": "gpt-5",
+}
+
 DETECTION_SCHEMA = {
     "is_cover": bool,
     "p_cover": float,
@@ -101,9 +110,60 @@ def _call_anthropic(prompt, model, max_tokens=1024, timeout=60):
     return data["content"][0]["text"]
 
 
+def _call_gemini(prompt, model, max_tokens=1024, timeout=60):
+    """Call Google Gemini generateContent. Reads GEMINI_API_KEY (or
+    GOOGLE_API_KEY)."""
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY (or GOOGLE_API_KEY) not set")
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent?key={api_key}")
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "responseMimeType": "application/json",
+        },
+    }).encode()
+    headers = {"Content-Type": "application/json"}
+    req = urllib.request.Request(url, data=body, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
+def _call_groq(prompt, model, max_tokens=1024, timeout=60):
+    """Call Groq's OpenAI-compatible chat completions endpoint. Hosts
+    open-weights models at very high throughput. Useful for iterating
+    on prompt design; Llama 3.3 70B is mid-tier, not frontier, so do
+    not use as the headline Adv_D detector."""
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY not set")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+    }).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    req = urllib.request.Request(url, data=body, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    return data["choices"][0]["message"]["content"]
+
+
 def _call_api(prompt, model, api, **kwargs):
     if api == "anthropic":
         return _call_anthropic(prompt, model, **kwargs)
+    if api == "gemini":
+        return _call_gemini(prompt, model, **kwargs)
+    if api == "groq":
+        return _call_groq(prompt, model, **kwargs)
     if api == "mock":
         return _mock_response(prompt)
     raise NotImplementedError(f"API {api!r} not yet supported")
@@ -232,10 +292,13 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--source", required=True, help="Path to document to score")
-    p.add_argument("--api", default="mock", choices=["mock", "anthropic"])
-    p.add_argument("--model", default=DEFAULT_MODEL)
+    p.add_argument("--api", default="mock",
+                   choices=["mock", "anthropic", "gemini", "groq"])
+    p.add_argument("--model", default=None,
+                   help="Override model. Default depends on --api.")
     args = p.parse_args()
 
+    model = args.model or PROVIDER_DEFAULTS.get(args.api, DEFAULT_MODEL)
     text = open(args.source).read()
-    result = score_cover(text, model=args.model, api=args.api)
+    result = score_cover(text, model=model, api=args.api)
     print(json.dumps(result, indent=2))
