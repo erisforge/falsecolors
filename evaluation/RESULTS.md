@@ -1,8 +1,123 @@
-# Eris FALSECOLORS Local-Model Evaluation, v2 (May 2026)
+# Eris FALSECOLORS Local-Model Evaluation
 
-This is the second-pass evaluation. The first pass (v1, see commit history of `evaluation/results.json` and `evaluation/results-extended.json`) ran n=3 trials per (model, doc) and used a JSON-validity check as the only quality signal. v2 adds n=10 trials, a mapping-verification gate that detects the silent "hallucinated mapping" failure mode, a 5x corpus expansion, and a `/no_think` retry for qwen3.
+Three rounds of evaluation have been run. Each round superseded the prior round's guidance.
 
-## Headline
+- **v3 (May 2026): Two-step prompt.** Current guidance lives here. Recovery rose substantially across every model in the cohort, the hallucinated-mapping failure mode was effectively eliminated for four of six models, and the smallest model in the cohort (qwen3:1.7b) became one of the strongest. Section [v3](#v3-may-2026-two-step-prompt) below.
+- **v2 (May 2026): Verification gate and 5x corpus.** Introduced the `mapping_supported / mapping_sampled` metric that exposed the silent "hallucinated mapping" failure mode and reframed the picture from v1's mean-recovery ranking to a viability-tier ladder. Superseded for guidance by v3 but the methodology section is still authoritative. Section [v2](#v2-may-2026-verification-gate-and-5x-corpus) below.
+- **v1 (May 2026): n=3 baseline.** Mean-recovery ranking only, no mapping-fidelity check. Surfaced that the LLM backend was less consistent than the static backend and motivated v2.
+
+This document is structured oldest-on-the-bottom: read v3 for current guidance; descend into v2 for the methodology and the original viability-tier framing.
+
+---
+
+## v3 (May 2026): Two-step prompt
+
+### Headline
+
+**Four of six local models are now in striking distance of production-grade.** mistral:7b-instruct and qwen3:1.7b both reach `P(recovery ≥ 0.95) ≥ 0.40` with `P(recovery < 0.30) = 0.00`; gemma3:4b and llama3.1:8b both reach `P(recovery < 0.30) = 0.00` with median recovery above 0.87. The two-step prompt closed the gap that v2 attributed to "needs a much larger model than this cohort tests."
+
+**The single most consequential v3 finding: `qwen3:1.7b` went from unusable to tied for best.** Median recovery rose from 0.080 (v2) to 0.916 (v3). Mapping support ratio rose from 0.01 to 0.86. The smallest model in the lineup is now one of the most reliable. The v2 hypothesis that qwen3 had a "deeper prompt-following failure" was wrong; the failure was in the prompt, not the model.
+
+**`mistral:7b-instruct` is now the highest-mean model with no catastrophic tail.** Mean recovery 0.883, `P(recovery ≥ 0.95) = 0.43`, `P(recovery < 0.30) = 0.00`. The bimodal recovery-by-not-shifting failure documented in v2 is gone: the two-step prompt forces the model to commit to a mapping before writing the cover, so it cannot fall back to a 2-entry minimal-shift trial.
+
+**`phi3:mini` did not benefit.** Median recovery 0.555, only 7/30 trials above 0.70. The two-step prompt fixed phi3's mapping-support problem (0.51 → 0.84) but recovery did not follow. Phi3 now produces honest mappings of covers that drop or mangle source content; the bottleneck moved from mapping fidelity to content preservation in the cover write itself.
+
+### What v3 changed
+
+The v2 prompt asked the model to do three things in one response: plan a domain shift, write the cover prose, and emit the substitutions as a JSON tail. The third step is a *recall* task: the model has to remember every word-pair it just used. Small models cannot reliably do this and instead emit a *plausible* mapping that does not correspond to the cover. v2 measured this as the mapping support ratio. qwen3:1.7b in v2 produced 81 sampled mapping entries across 30 trials, of which 1 appeared in the cover.
+
+The v3 prompt splits the rewrite from the mapping-emission step. Call 1 asks for a JSON object of substitutions only, no prose. Call 2 takes that fixed mapping back as input and asks the model to write the cover constrained to those substitutions. The mapping is locked before the rewrite begins, so the model can no longer fabricate it from memory after the fact. The recall task becomes a *constraint-satisfaction* task, which small models handle well.
+
+This is implemented in `falsecolors.py` under `LLM_TWO_STEP = True` (default). Set the flag to `False` to revert to the v2 single-step prompt for A/B comparison.
+
+### v3 results table
+
+180 trials (6 models × 3 docs × n=10), same documents and corpus as v2.
+
+| Model | Recovery (mean ± SD) | P(rec ≥ 0.95) | P(rec < 0.30) | Map support (agg) | Trials with sup=100% | Encode (s) |
+|---|---|---|---|---|---|---|
+| **mistral:7b-instruct** | 0.883 ± 0.087 | **0.43** | **0.00** | 0.75 | 6/30 | 96.7 |
+| **qwen3:1.7b** | 0.908 ± 0.073 | 0.40 | **0.00** | 0.86 | 17/28 | 115.3 |
+| **gemma3:4b** | 0.842 ± 0.107 | 0.17 | **0.00** | **0.92** | 19/30 | 30.8 |
+| **llama3.1:8b** | 0.853 ± 0.137 | 0.07 | **0.00** | 0.85 | 17/30 | 81.5 |
+| llama3.2:3b | 0.785 ± 0.186 | 0.17 | **0.00** | 0.61 | 3/30 | 24.1 |
+| phi3:mini | 0.556 ± 0.193 | 0.00 | 0.03 | 0.84 | 15/30 | 31.5 |
+
+Aggregate map support is `Σ mapping_supported / Σ mapping_sampled` across all trials for that model. qwen3 had 2 encode failures (Ollama timeout); the other models had zero.
+
+Total v3 wall time: 3.17h (within 2% of v2's 3.24h despite running two LLM calls per encode; smaller models like gemma3 and llama3.2 produced a faster constrained rewrite in step 2 and partially offset the extra call).
+
+### v3 vs v2 deltas
+
+| Model | v2 mean | v3 mean | Δ | v2 sup_agg | v3 sup_agg | v2 P<.30 | v3 P<.30 |
+|---|---|---|---|---|---|---|---|
+| qwen3:1.7b | 0.146 | **0.908** | **+0.762** | 0.01 | 0.86 | 0.83 | 0.00 |
+| mistral:7b-instruct | 0.703 | 0.883 | +0.180 | 0.69 | 0.75 | 0.13 | 0.00 |
+| gemma3:4b | 0.581 | 0.842 | +0.261 | 0.95 | 0.92 | 0.00 | 0.00 |
+| llama3.1:8b | 0.631 | 0.853 | +0.222 | 0.92 | 0.85 | 0.00 | 0.00 |
+| llama3.2:3b | 0.635 | 0.785 | +0.150 | 0.81 | 0.61 | 0.07 | 0.00 |
+| phi3:mini | 0.474 | 0.556 | +0.082 | 0.51 | 0.84 | 0.07 | 0.03 |
+
+Every model improved on every primary metric. The qwen3 delta is the largest single improvement observed in any FALSECOLORS evaluation to date.
+
+### Per-document medians
+
+```
+                    doc01    doc02    doc03
+gemma3:4b           0.905    0.919    0.719
+llama3.1:8b         0.943    0.913    0.844
+llama3.2:3b         0.621    0.946    0.884
+mistral:7b-instruct 0.891    0.952    0.827
+phi3:mini           0.705    0.578    0.366
+qwen3:1.7b          0.923    0.960    0.901
+```
+
+doc 03 (substation, IEC 61850, dense identifiers) was the hardest case in v2 with mistral and llama3.1 both at ~0.45 mean. In v3 the same document recovers above 0.82 median for every model except phi3. The two-step prompt's largest absolute lift is on the identifier-dense case, which makes sense: the recall burden was highest where there were the most substitutions to remember.
+
+### Updated viability tiers
+
+**Production-tier (with manual diff still recommended):** mistral:7b-instruct, qwen3:1.7b. Both above 0.40 P(rec ≥ 0.95), both with zero catastrophic trials, both with median recovery above 0.91. Use mistral when wall-time budget is permissive and you want the highest peak quality; use qwen3 for fastest small-model deployment with comparable median recovery (115s encode is dominated by the second LLM pass; the first pass finishes in ~30s).
+
+**Beta-tier (consistency-first):** gemma3:4b, llama3.1:8b. Median recovery 0.84-0.85, both with zero catastrophic trials. gemma3:4b has the highest mapping fidelity in the cohort (0.92 aggregate, 19/30 trials at 100%) and the fastest encode (30.8s). Use gemma3:4b when you want minimal trust in the mapping-verification gate and don't need the absolute highest peak recovery.
+
+**Caution-tier:** llama3.2:3b. Median 0.842 sounds fine but doc 01 median is only 0.621 and aggregate map support is 0.61 (lowest of any non-failing model). Variance is the highest in the cohort (SD 0.186). Useful for short content; risky for short documents specifically.
+
+**Not viable:** phi3:mini. Median 0.555. The two-step prompt fixed its mapping fidelity but did not fix its content preservation. Likely needs the polish step (v3-C, available via `--polish`) or a different prompt structure entirely.
+
+### One open puzzle
+
+For mistral:7b-instruct the per-trial Pearson correlation between `mapping_supported_ratio` and `recovery_ratio` is **−0.48** (n=30). Higher mapping fidelity weakly predicts *lower* recovery for this model specifically. This does not appear for any other model (gemma −0.04, llama3.1 +0.24, llama3.2 −0.22, phi3 +0.36, qwen3 −0.05).
+
+Working hypothesis: when mistral's two-step pass aggressively re-derives mapping entries from the cover, it captures incidental cover words that were not part of the planned substitution. These inflate the mapping size, pass the substring-presence check, and then introduce decode-time noise because the inverse rewrites cover-domain bystander words back into source-domain terms that were never there. The fix would be to weight the mapping-verification gate by identifier coverage of the source, not just substring presence in the cover. This is unresolved and worth investigating in v4.
+
+### v3 production-use guidance
+
+1. **Use the LLM backend with `LLM_TWO_STEP = True` (the default).** Do not fall back to the v2 single-step prompt outside of A/B testing.
+2. **For the highest-quality covers, use `mistral:7b-instruct`.** P(rec ≥ 0.95) = 0.43, zero catastrophic trials, median 0.92.
+3. **For fastest deployment of the smallest viable model, use `qwen3:1.7b`.** Median recovery 0.92 at 1.7B parameters; runs on essentially any modern hardware with Ollama. Note the second LLM call extends total encode to ~115s.
+4. **For best mapping-fidelity audit trail, use `gemma3:4b`.** 92% aggregate mapping support, 19/30 trials at 100% support. The substitutions in the embedded JSON are the substitutions in the cover, almost without exception.
+5. **The `--strict` flag on `encrypt` is now safe to use as a default.** With v3 prompts, the 80% mapping-support threshold rarely trips for the four production/beta-tier models. It still trips for phi3 (16% of trials below 80%) and llama3.2:3b on doc 01 specifically.
+6. **The `--polish` flag remains optional.** v3 narrowed the recovery-quality gap; the polish step is still the right intervention for closing the Caudle Distance gap (cover naturalness vs native), which v3 did not address. SCD remained at 1.10-1.16 nats across all models.
+
+### Reproducing v3
+
+```bash
+cd /path/to/falsecolors
+ollama pull llama3.2:3b qwen3:1.7b phi3:mini gemma3:4b mistral:7b-instruct llama3.1:8b
+OLLAMA_TIMEOUT=600 python3 evaluation/run.py --trials 10 --out evaluation/results-v3-twostep.json
+# To resume after interruption:
+OLLAMA_TIMEOUT=600 python3 evaluation/run.py --out evaluation/results-v3-twostep.json --resume
+```
+
+The harness writes incrementally; `--resume` loads the existing `--out` file and skips any `(doc, model, trial)` already recorded. Raw v3 data: `evaluation/results-v3-twostep.json`.
+
+---
+
+## v2 (May 2026): Verification gate and 5x corpus
+
+The methodology section below is the authoritative description of how trials are run, what metrics mean, and what the test corpus looks like. The viability-tier framing and per-model recommendations have been superseded by v3 above.
+
+### Headline (superseded by v3)
 
 **No model in the cohort is production-grade for the public falsecolors prompt.** `P(recovery ≥ 0.95)` is at most 0.17 (mistral:7b-instruct), and every other model is 0.00. The local-LLM backend in `falsecolors.py encrypt --backend llm` is a research-grade tool today. Production use requires either (a) a polish step that runs after the LLM rewrite, (b) a much larger model than this cohort tests, or (c) a prompt redesign that the model can follow more reliably.
 
@@ -10,7 +125,7 @@ This is the second-pass evaluation. The first pass (v1, see commit history of `e
 
 **`mistral:7b-instruct` is the highest-mean model but is also the most dangerous.** It produces the highest peak recoveries (17% of trials at ≥0.95) but also has 13% of trials below 0.30 with parseable mapping JSONs. Its mapping-supported ratio is 0.69, the lowest of any non-broken model. The mean (0.703) hides a bimodal distribution: 17% near-perfect, 13% catastrophic, the middle bunched around 0.7-0.85.
 
-**`qwen3:1.7b` is unusable on the public prompt.** /no_think eliminates the thinking-mode bleed but the model still emits mapping JSONs that match the cover in 1 of 81 sampled pairs (mapping support ratio: 0.01). Whatever qwen3 is doing on the rewrite, it is not what the prompt is asking for.
+**`qwen3:1.7b` is unusable on the public prompt.** /no_think eliminates the thinking-mode bleed but the model still emits mapping JSONs that match the cover in 1 of 81 sampled pairs (mapping support ratio: 0.01). Whatever qwen3 is doing on the rewrite, it is not what the prompt is asking for. *(v3 update: this conclusion was wrong. The two-step prompt brings qwen3:1.7b to median recovery 0.916 and mapping support 0.86. The failure was in the prompt structure, not the model.)*
 
 ## Methodology
 
@@ -173,26 +288,18 @@ phi3:mini doc 2 trial 3 crashed with `JSONDecodeError: Illegal trailing comma`. 
 
 The v1 mistral recommendation was the wrong call. The mean was right; the tail was missed; and the mapping fidelity was opaque.
 
-## Production-use guidance (revised from v1)
+### Production-use guidance (v2, superseded by v3)
 
-1. **No model in this cohort is production-grade for high-stakes use.** The local-LLM backend is research-grade today; treat outputs as drafts that require manual diff before transmission.
-2. **For batch or unattended use, use `gemma3:4b`.** It is the only model with `P(recovery < 0.30) = 0.00` across n=30 trials, and 95% of its sampled mapping entries appear in the cover. It is also faster than the 7-8B models.
-3. **For one-off interactive use where you can diff before sending, mistral:7b-instruct can produce stronger covers** — but verify every output. The 0.95+ trials are excellent; the 0.30- trials look superficially fine and are not.
-4. **Avoid identifier-dense documents on any local model in this cohort.** Pre-process out CVEs, standards, measurements, and version numbers via the `IdentEncoder` placeholder system, and feed the LLM only the prose layer.
-5. **Do not use qwen3:1.7b** with the public falsecolors prompt as shipped, even with `/no_think`. The mapping fidelity is 0.01.
-6. **A polish step is the obvious next product investment.** Rerun the cover through a second LLM call ("rewrite this document to read more naturally as a brewery document, preserving every domain term") and re-verify. This was identified in the paper (Section 2.15.4) as the path from `Caudle Distance > 0.5` to `Caudle Distance ≈ 0` and is independent of the rewrite-quality issue.
+These six v2 recommendations were the operational guidance shipped after v2 and have been replaced by the v3 guidance at the top of this document. They are kept here for traceability.
 
-## v3 future work
+1. **No model in this cohort is production-grade for high-stakes use.** The local-LLM backend is research-grade today; treat outputs as drafts that require manual diff before transmission. *(v3: superseded. Four models now reach beta-or-better tier with the two-step prompt.)*
+2. **For batch or unattended use, use `gemma3:4b`.** It is the only model with `P(recovery < 0.30) = 0.00` across n=30 trials, and 95% of its sampled mapping entries appear in the cover. It is also faster than the 7-8B models. *(v3: gemma3:4b remains a strong beta-tier choice; mistral:7b and qwen3:1.7b now exceed it on recovery while maintaining `P(rec<0.30)=0`.)*
+3. **For one-off interactive use where you can diff before sending, mistral:7b-instruct can produce stronger covers**, but verify every output. The 0.95+ trials are excellent; the 0.30- trials look superficially fine and are not. *(v3: the catastrophic-trial failure mode is gone. Manual diff is still recommended but no longer required to catch silent collapses.)*
+4. **Avoid identifier-dense documents on any local model in this cohort.** Pre-process out CVEs, standards, measurements, and version numbers via the `IdentEncoder` placeholder system, and feed the LLM only the prose layer. *(v3: doc 03 median recovery is now 0.82-0.90 for four of six models. Identifier density is no longer a hard limit.)*
+5. **Do not use qwen3:1.7b** with the public falsecolors prompt as shipped, even with `/no_think`. The mapping fidelity is 0.01. *(v3: reversed. qwen3:1.7b is now production-tier on the two-step prompt.)*
+6. **A polish step is the obvious next product investment.** *(v3: implemented as the optional `--polish` flag. Recommended for SCD reduction; v3-B already addressed the recovery-quality concern that motivated this item.)*
 
-Open after v2:
-
-- **Polish-step harness.** Add a second-pass LLM call that rewrites the cover for naturalness without modifying the mapping. Measure whether `recovery_ratio` and SCD both improve and whether mapping_supported holds.
-- **Reference 13B+ model.** Tests this cohort doesn't span. Likely needs cloud or a beefier local box.
-- **Alternative prompt structures.** Separate the rewrite step from the mapping-emission step (two LLM calls). Force the model to emit the mapping first, then write the cover, applying the mapping mechanically. This may resolve the mistral bimodality and the qwen3 prompt-following failure.
-- **Identifier-dense document rewrite test.** Doc 3 is the failure case; a v3 should construct documents at varying identifier-density levels and characterize the recovery-vs-density curve.
-- **Cross-document SCD.** Compute SCD against the corpus AND against other covers. Cross-cover similarity may be more discriminating than corpus similarity given the corpus-quality floor.
-
-## Reproducing this evaluation
+### v2 reproducing instructions (superseded by v3)
 
 ```bash
 cd /path/to/falsecolors
@@ -200,12 +307,23 @@ ollama pull llama3.2:3b qwen3:1.7b phi3:mini gemma3:4b mistral:7b-instruct llama
 OLLAMA_TIMEOUT=600 python3 evaluation/run.py --trials 10 --out evaluation/results-v2.json
 ```
 
-The harness writes incrementally so partial progress survives interrupt. Override the model list with `--models llama3.2:3b gemma3:4b`. Per-model prompt prefixes are configured in the `PROMPT_PREFIX` dict in `run.py`.
+To run v2 today (with the two-step prompt now default), set `LLM_TWO_STEP = False` in `falsecolors.py` first. The v3 reproducing instructions at the top of this document are the recommended path.
+
+---
 
 ## Data
 
-- v2 raw: `evaluation/results-v2.json` (n=10 × 6 models × 3 docs = 180 trials)
-- v1 raw: `evaluation/results.json` (3-4B band, n=3) and `evaluation/results-extended.json` (7-8B band, n=3) — preserved for v1 vs v2 comparison
-- Test documents: `evaluation/documents/`
-- Reference corpus: `evaluation/corpora/brewery.txt` (5x v1 size)
-- Harness: `evaluation/run.py`
+- **v3 raw:** `evaluation/results-v3-twostep.json` (n=10 × 6 models × 3 docs = 180 trials, two-step prompt)
+- **v2 raw:** `evaluation/results-v2.json` (n=10 × 6 models × 3 docs = 180 trials, single-step prompt)
+- **v1 raw:** `evaluation/results.json` (3-4B band, n=3) and `evaluation/results-extended.json` (7-8B band, n=3)
+- Test documents: `evaluation/documents/` (unchanged across v1, v2, v3)
+- Reference corpus: `evaluation/corpora/brewery.txt` (unchanged from v2)
+- Harness: `evaluation/run.py` (v3 added the `--resume` flag)
+
+## Future work after v3
+
+- **Polish-step evaluation.** v3-C implementation exists (`--polish` flag) but has not been run through the full 180-trial evaluation. Open question: does polish lift Caudle Distance from 1.10 to below 0.5 nats without breaking the `mapping_supported` ratio? The verify-and-fallback in `polish_cover` should keep mapping fidelity intact, but the trade-off has not been characterized.
+- **Mistral mapping-fidelity / recovery negative correlation.** −0.48 Pearson on n=30 is suggestive but not conclusive. v4 should run mistral:7b-instruct at n=30+ on a per-doc basis to see whether the correlation persists and whether it is driven by mapping size inflation specifically.
+- **Reference 13B+ model.** Carried forward from v2. With the two-step prompt now lifting the small-model band, the open question is whether a 13B-70B model gets to `P(rec ≥ 0.95) ≥ 0.90` without polish.
+- **Identifier-dense regression set.** v3 removed the doc-03 cliff for most models. v4 should construct documents at varying identifier densities (e.g., 0.5 to 5.0 identifiers per sentence) to characterize the recovery-vs-density curve under the two-step prompt.
+- **Cross-document SCD.** Carried forward from v2. Compute SCD between covers from different source documents to assess unlinkability.

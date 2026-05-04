@@ -142,6 +142,9 @@ def main():
                    help="Override the model list")
     p.add_argument("--trials", type=int, default=TRIALS)
     p.add_argument("--out", default=str(Path(__file__).parent / "results.json"))
+    p.add_argument("--resume", action="store_true",
+                   help="Load existing --out file and skip any "
+                        "(doc, model, trial) already recorded")
     args = p.parse_args()
 
     corpus = (Path(__file__).parent / "corpora" / "brewery.txt").read_text()
@@ -150,6 +153,12 @@ def main():
         sys.exit("no documents found under evaluation/documents")
 
     results = []
+    seen = set()
+    if args.resume and Path(args.out).exists():
+        results = json.loads(Path(args.out).read_text())
+        seen = {(r["doc"], r["model"], r["trial"]) for r in results}
+        print(f"resume: loaded {len(results)} prior trials from {args.out}")
+
     started = time.time()
     total = len(doc_paths) * len(args.models) * args.trials
     n = 0
@@ -158,6 +167,8 @@ def main():
         for model in args.models:
             for trial in range(args.trials):
                 n += 1
+                if (doc_path.name, model, trial + 1) in seen:
+                    continue
                 tag = f"[{n}/{total}] {doc_path.name} | {model} | t{trial+1}"
                 print(tag, "...", end=" ", flush=True)
                 r = run_one(model, doc_text, corpus)

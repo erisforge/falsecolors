@@ -122,19 +122,21 @@ Three layers compose in sequence:
 
 The static `encrypt` / `decrypt` path is deterministic and always works. Round-trip recovery is exact. The static path is the recommended one for high-stakes use.
 
-The `--backend llm` path uses a local LLM via Ollama for arbitrary cover topics. Recovery quality depends on the model. A formal evaluation across six 1.7B-8B models, three sensitive OT/ICS test documents, and 180 trials (n=10 per model per doc) is documented in [`evaluation/RESULTS.md`](evaluation/RESULTS.md). The harness, raw per-trial data, and reference corpus are all in `evaluation/` for reproducibility.
+The `--backend llm` path uses a local LLM via Ollama for arbitrary cover topics. Recovery quality depends on the model. Three rounds of formal evaluation across six 1.7B-8B models, three sensitive OT/ICS test documents, and 180 trials per round (n=10 per model per doc) are documented in [`evaluation/RESULTS.md`](evaluation/RESULTS.md). Harness, raw per-trial data, and reference corpus are all in `evaluation/` for reproducibility.
 
-Headline:
+Headline (v3, two-step prompt, default since `LLM_TWO_STEP = True`):
 
-| Use case | Recommended model |
-|---|---|
-| Batch / unattended use, consistency-first | **`gemma3:4b`** (`P(rec < 0.30) = 0`, mapping support 0.95) |
-| One-off interactive use with manual diff | **`mistral:7b-instruct`** (peak quality, 13% tail-risk requires diff verification) |
-| Avoid | qwen3 family (mapping support 0.01 even with `/no_think`), phi3:mini (49% hallucinated mapping rate) |
+| Use case | Recommended model | Median recovery | P(rec ≥ 0.95) | P(rec < 0.30) |
+|---|---|---|---|---|
+| Highest peak quality | **`mistral:7b-instruct`** | 0.92 | 0.43 | 0.00 |
+| Smallest viable model | **`qwen3:1.7b`** | 0.92 | 0.40 | 0.00 |
+| Highest mapping fidelity | **`gemma3:4b`** | 0.87 | 0.17 | 0.00 |
+| Largest in cohort | `llama3.1:8b` | 0.91 | 0.07 | 0.00 |
+| Avoid for now | `phi3:mini` (median 0.55) | | | |
 
-**No model in the cohort is production-grade today.** `P(recovery ≥ 0.95)` is at most 0.17 (mistral) and 0 for every other model. Treat the LLM backend as research-grade and diff every cover before relying on it. A polish-step pass (rerun the cover through a second LLM call for naturalness, then re-verify) is identified as the obvious next product investment.
+`P(rec < 0.30) = 0.00` across five of six models in v3, including the four production/beta-tier picks above. The catastrophic-tail failure mode that v2 documented for mistral:7b is gone; the silent hallucinated-mapping failure that v2 documented for qwen3:1.7b (mapping support 0.01) is also gone (now 0.86). The two-step prompt lifted every model in the cohort and reversed the v2 conclusion that production use required a polish step or a much larger model.
 
-The evaluation surfaced one silent-integrity failure mode worth knowing about: a model can emit a parseable mapping JSON whose entries do not correspond to the substitutions actually made in the cover. This passes JSON validity but breaks recovery. The harness's `mapping_supported / mapping_sampled` metric detects this; the public `falsecolors.py` does not. If you build automation on top of the LLM backend, add the same spot-check from `evaluation/run.py:verify_mapping` to your pipeline.
+The evaluation surfaced one silent-integrity failure mode worth knowing about: a model can emit a parseable mapping JSON whose entries do not correspond to the substitutions actually made in the cover. The two-step prompt makes this rare for the four recommended models but does not eliminate it. The `verify_mapping_support` gate in `falsecolors.py` spot-checks five random `(src, tgt)` pairs against the cover and warns on stderr when fewer than 80% are supported; pass `--strict` to `encrypt` to turn the warning into a hard error. If you build automation on top of the LLM backend, leave `--strict` on.
 
 ## The Paper
 
