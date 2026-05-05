@@ -107,7 +107,15 @@ def _call_anthropic(prompt, model, max_tokens=1024, timeout=60):
     req = urllib.request.Request(url, data=body, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read())
-    return data["content"][0]["text"]
+    # Defensive: empty content arrays (refusal, max_tokens hit on first
+    # token, etc.) return a structured marker the parser will treat as
+    # an abstention rather than crashing through to IndexError.
+    content = data.get("content") or []
+    for block in content:
+        if block.get("type") == "text" and block.get("text"):
+            return block["text"]
+    stop = data.get("stop_reason", "unknown")
+    return f'[empty content, stop_reason={stop}]'
 
 
 def _call_gemini(prompt, model, max_tokens=4096, timeout=60):

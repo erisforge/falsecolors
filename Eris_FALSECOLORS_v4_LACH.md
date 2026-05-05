@@ -269,6 +269,8 @@ A recurring question in Phase 2 design is: which structural cues do frontier det
 
 8. **Compositional leakage.** A single document's `Adv_D` does not bound an adversary's advantage when given many documents from the same user. Composition is the scope of the Caudle Accountant (forthcoming).
 
+9. **Safety-filter refusals on benign content.** During the Sonnet 4.6 pilot run on `birdwatching_v1.txt`, one paragraph (avian anatomy: uropygial gland, feather waterproofing, migration physiology) returned `stop_reason=refusal` with empty content. The same paragraph scored cleanly against Opus 4.7 (TN, p=0.15). This is a Sonnet-specific safety-filter behavior on completely benign technical content. The implication for LACH methodology: detector abstentions are not random missingness; they are biased toward content classes the detector's safety filter has been trained to avoid. The v4 evaluation must report (a) total trial count, (b) parse-failure count split by cause (true parse error, refusal, rate limit, network error), and (c) compute Adv_D only over trials with `parse_ok=true` while clearly labeling the abstention rate. A high abstention rate on a specific content class biases FPR estimation by selectively removing those samples from the denominator. The detector adapter (`evaluation/detector.py`) was patched mid-pilot to return `[empty content, stop_reason=X]` rather than crashing through to IndexError on empty content arrays; pilot results in Section 7 use the patched adapter except where noted.
+
 ## 9. Reproducibility
 
 The full LACH measurement pipeline is reproducible from:
