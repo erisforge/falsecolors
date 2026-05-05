@@ -413,6 +413,89 @@ The Sonnet vs. Opus disagreement on `llama3.2:3b` covers (Section 7.6) revealed 
 
 These answers are independent. A high-leak cover is "yes" to substitution AND source-domain on dominant assessment. A clean cover is "no" to substitution AND cover-domain on dominant assessment. The product of the two answers gives the underlying detection signal more cleanly than the current collapsed binary.
 
+## 7.9 Method 5 (Graph Shift): two-pass implementation
+
+The pilot data in Section 7.6.4 identifies the structural fix: a multi-pass pipeline that abstracts the source to a relational graph first, then generates a native cover-domain document from the graph rather than from the source text. Method 5 implements this. The reference implementation is in `falsecolors.py` under `encode_via_graph` and `decode_via_graph`, with CLI flag `--method graph` on `encrypt`.
+
+### 7.9.1 Architecture
+
+Two LLM passes, both local (Ollama), both fully automatic. No manually curated mapping table; no fixed schema for entities or predicates.
+
+```
+Source text -> Pass 1 (extract) -> relational graph -> Pass 2 (cover) -> Cover document
+                                            +
+                                       source_vocab (kept in encrypted key,
+                                                     never reaches Pass 2)
+```
+
+Pass 1 emits a JSON object with five fields. Entities (with LLM-invented `id`, `type`, and a generic `function` description), relations (with LLM-invented predicates), claims (expressed in entity ids only), identifiers (verbatim numeric and technical identifiers from the source), and source_vocab (entity_id → literal source phrase, used only for recovery).
+
+Pass 2 receives the graph **with `source_vocab` removed** and a topic directive. It generates a native cover-domain document in a genre natural to the topic and produces a cover_vocab dict mapping each entity id to a topic-domain term it invented.
+
+Recovery: cover terms reverse-substitute via `cover_vocab` to entity_id placeholders, then forward-substitute via `source_vocab` to source terms. The IdentEncoder pre-pass used by Methods 1 to 4 is **not** applied in Method 5 (its NATO-word placeholders leak through the graph as phonetic-alphabet artifacts; the graph schema's `identifiers` dict and the cover_vocab cover the same ground).
+
+### 7.9.2 Encode-side post-processing
+
+The pilot iteration surfaced three small-model compliance issues that required deterministic post-processing:
+
+1. **Entity-id parenthetical leak.** Pass 2 sometimes emits `fermenter (asset_1)` style annotations. `_strip_entity_id_parentheticals` removes these.
+2. **Raw entity-id leak in prose.** Pass 2 sometimes writes `System 1`, `Protocol 1`, `role` directly into the cover. `_strip_raw_entity_ids` matches all surface variants of each entity id (`system_1`, `system 1`, `System 1`, `SYSTEM 1`, `system1`, `System1`) and substitutes the cover_vocab term.
+3. **Source-vocabulary leak in cover_vocab.** Pass 2 occasionally chooses a cover-domain term that contains source-domain vocabulary (e.g. cover_vocab\["asset_1"\] = "holding registers" for an OT source). `_check_cover_vocab_leaks` matches against a per-source-kind forbidden vocabulary list (`SOURCE_LEAK_VOCAB` for `ot_ics`, `political`, `legal`) and warns at encode time.
+
+Pass 1 also emits a completeness check: if `source_vocab` does not have an entry for every entity in `entities`, the operator is warned that recovery will be partial for the missing entities.
+
+### 7.9.3 Tradeoff
+
+Method 5 round-trip preserves semantic content (entities, relations, claims, numeric identifiers) but **does not** preserve the source's exact rhetorical framing or document genre. The cover document opens, structures, and concludes in the cover-domain genre that Pass 2 chooses (a brewery audit memo opens with "Quality Control Audit Report - Batch X" and concludes with brewmaster recommendations). The recovered document inherits this framing.
+
+For OT pentest findings, situation reports, and operational analyses, this is acceptable: the operationally meaningful content (vulnerability description, attack path, identifiers, severity, impact) is fully recovered. For documents where exact wording is load-bearing (legal contracts, signed instruments, regulatory submissions with verbatim language), Method 1 with a curated mapping is the appropriate choice.
+
+### 7.9.4 Pilot test on four documents
+
+End-to-end test in `evaluation/test_method5.py`. Sources: three OT/ICS pentest findings from the v3 cohort (`01_reactor_sis_bypass.txt`, `02_water_scada_creds.txt`, `03_substation_iec61850.txt`) plus one fresh geopolitical intelligence assessment (`04_geopolitical_intel.txt`, ~340 words, named country designations Country A through E, force-posture indicators, satellite-imagery references, NSC-style key-judgment framing).
+
+For each document: encode via Method 5 with topic "craft brewery quality control audit" and `gemma3:4b`, score the cover via Sonnet 4.6 + Opus 4.7, decode and measure round-trip recovery via difflib SequenceMatcher.
+
+**Pilot result: 1 of 4 documents encoded successfully; the single completed cover was detected by both detectors and round-trip recovery was negligible.**
+
+| Doc | Encode | Sonnet | Opus | Recovery |
+|---|---|---|---|---|
+| 01_reactor_sis_bypass | 480s | DETECTED p=0.97 | DETECTED p=0.95 | 0.043 |
+| 02_water_scada_creds | TIMEOUT (300s) | n/a | n/a | n/a |
+| 03_substation_iec61850 | TIMEOUT | n/a | n/a | n/a |
+| 04_geopolitical_intel | TIMEOUT | n/a | n/a | n/a |
+
+The three timeouts were single-call timeouts on the 300-second `OLLAMA_TIMEOUT` ceiling. The completed encode took 480 seconds total across two LLM calls. Cover length was 2131 characters (longer than vocabulary-substitution covers due to the audit-memo genre wrapper and the elaborate Pass 2 prompt).
+
+Inspection of the doc 01 result reveals the failure mode is upstream of the architecture. Pass 1 chose source phrases verbatim AS entity IDs ("ethylene oxide reactor", "Safety PLC", "Brewmaster") instead of inventing generic ids ("asset_1", "system_1"). Pass 2 received those source phrases as entity_ids and wrote them into the cover. The post-processing layer (`_strip_raw_entity_ids`, `_check_cover_vocab_leaks`) flagged the issue but could not repair the cover after the fact. Round-trip then failed because source_vocab had no entries to replace placeholders like `__ethylene oxide reactor__`.
+
+### 7.9.5 The model-capability ceiling
+
+The architecture is correct; the implementation model is the binding constraint. Method 5 demands multi-step instruction-following at a level that exceeds gemma3:4b's reliable-compliance band:
+
+1. Extract typed entities, **invent generic ids** that are not source phrases.
+2. Populate `source_vocab` for every entity (Pass 1 sometimes omits this for entities it labelled with source phrases).
+3. Generate cover-domain prose with **predicate translation** (PROTECTS → "ensures the consistency of", ACCESSES → "monitors") rather than a security-flavored rendering.
+4. Produce `cover_vocab` values that are **specific {topic}-domain terms**, not generic placeholders, not source vocabulary, not the entity id.
+
+Each step is reachable for a 4B-parameter model in isolation. Composed in a single prompt, the model violates one or more of the four constraints in nearly every trial. The pilot data and the smoke-test iterations during development consistently surfaced compliance failures rather than algorithmic failures.
+
+Two paths forward:
+
+- **Use a frontier-class model for at least Pass 1.** Sonnet 4.6 or Opus 4.7 via the Anthropic API would handle the abstraction reliably. Pass 2 could remain local. This breaks the "fully local" property of FALSECOLORS for the encode side but only for Method 5; Methods 1 to 4 stay local. Cost is ~$0.05 to $0.15 per encode, latency under 30 seconds.
+
+- **Distill or fine-tune a small local model on the Method 5 prompt structure.** A specifically-trained 7B model could handle the structured extraction more reliably than a generalist 4B. This is a research direction not a near-term fix.
+
+The v4 paper recommends the first option for a working Method 5 deployment and the second as the longer-term goal. Method 5 in its current local-only form is a **proof-of-architecture** that does not yet meet the implementation bar for production deniability claims.
+
+### 7.9.6 What the pilot proves and does not prove
+
+**Proves:** the two-pass architecture is implementable, the round-trip mechanics work when both passes comply, the post-processing layer correctly detects compliance failures, and the key-embedding format extends cleanly to the new schema.
+
+**Does not prove:** that Method 5 actually reduces detector capability against frontier-class adversaries. The single completed cover scored at p=0.95 to 0.97, which is in the same band as Method 4 covers. To make a falsifiable claim about Method 5's improvement over Method 4, the encode pipeline must reliably produce covers that satisfy all four compliance constraints. With gemma3:4b that does not happen.
+
+The pilot is also a methodological data point for the v4 paper itself: the LACH eval framework correctly flagged the implementation gap before any deployment decision was made. The detector-bounded distinguishing game is doing exactly what it was designed to do, including catching architectures that fail empirical tests they were built to satisfy.
+
 ## 8. Limitations and Open Questions
 
 1. **Adversary model versioning.** `Adv_D` is detector-relative. As frontier models advance, today's `Adv_D = 0.4` may become `Adv_D = 0.7` against the same prompt. The v4 paper pins specific model versions; users should re-evaluate against contemporary detectors before deployment.
