@@ -3,7 +3,7 @@
 
 **Working Paper, Companion to Eris_FALSECOLORS_v3.md**
 **Author: River Caudle**
-**Revision: 0.1**
+**Revision: 0.2**
 **Date: May 2026**
 
 ---
@@ -19,6 +19,8 @@
 ## Abstract
 
 This companion to the main Eris FALSECOLORS paper introduces LACH (LLM-Adversarial Cover Hardening), a measurement framework and optional defense layer for Method 4 (Dynamic Shift) cover documents under modern LLM-mediated adversaries. The Detector-Bounded Distinguishing Game replaces the unmeasurable total-variation bound of Section 2.17 of the main paper with an empirical, falsifiable advantage metric `Adv_D` computed against a named frontier-LLM detector. Three sub-tasks are scored per trial: binary detection, closed-set source-domain classification, and partial inverse mapping. The detector prompt, response schema, and parsing protocol are specified in full so the experiment is reproducible. An initial empirical pilot against Google Gemini 2.5 Flash and Groq-hosted Llama 3.3 70B is reported, including a methodologically consequential finding about the v3 reference corpus.
+
+**Status of this document.** This is a methodology specification with pilot data, not a results paper. The full v4 evaluation across the v3 cohort (six models, three source documents, ten trials per cell, paired with length-matched native samples from `brewery_v4.txt`) is forthcoming. Pilot data presented in Section 7 establishes that the measurement pipeline works end-to-end and that the detection task is non-trivial for frontier LLMs; it does not yet establish headline `Adv_D` numbers. The reproducibility section (Section 9) and the appendices are written so that any reader with API access to one of the named detectors can reproduce the pilot results immediately and run the full evaluation when they choose to.
 
 ---
 
@@ -53,13 +55,11 @@ Section 2.17 of the main paper defines the Semantic Distinguishing Game with a s
 
 where TPR is the true-positive rate on covers and FPR is the false-positive rate on natives.
 
-**Theorem 4.2.3 (Detector advantage is bounded by information-theoretic advantage).** For any computable detector D operating in polynomial time:
+**Remark 4.2.3 (Bound by information-theoretic advantage).** Trivially, `Adv_D <= Adv_information-theoretic <= TV( P(C_doc) || P(N) )` for any computable D, since D is a specific computable strategy and the information-theoretic adversary supremes over all strategies; the second inequality is Theorem 2.17.3 of the main paper. The substantive content is not the bound but Observation 4.2.4.
 
-    Adv_D <= Adv_information-theoretic <= TV( P(C_doc) || P(N) )
+**Observation 4.2.4 (LACH does not contradict v3 results).** A high Caudle Distance does not imply high Adv_D, and a low Caudle Distance does not imply low Adv_D. Caudle Distance measures statistical distinguishability through token-adjacency cosine-similarity divergence; Adv_D measures the realized detection capability of a specific LLM detector. These are related but distinct quantities. The v3 paper's Caudle Distance numbers remain valid; LACH adds an orthogonal measurement.
 
-where the first inequality follows because D is a specific computable strategy and the information-theoretic adversary may use any strategy, and the second inequality is Theorem 2.17.3 of the main paper.
-
-**Corollary 4.2.4 (LACH does not contradict v3 results).** A high Caudle Distance does not imply high Adv_D, and a low Caudle Distance does not imply low Adv_D. Caudle Distance measures statistical distinguishability through token-adjacency cosine-similarity divergence; Adv_D measures the realized detection capability of a specific LLM detector. These are related but distinct quantities. The v3 paper's Caudle Distance numbers remain valid; LACH adds an orthogonal measurement.
+**Observation 4.2.5 (Cover-selection and detection-resistance are the same criterion).** A cover domain is useful for FALSECOLORS to the extent that it is structurally isomorphic to the source domain: the same relational patterns (causation, measurement, threshold, sequence) must apply naturally in both vocabularies. This is the same property that makes the cover hard to distinguish from a generic native document in the cover domain. But it is also the property that makes a frontier-LLM detector apt to false-positive on legitimate technical content in the cover domain, because the cover domain itself contains structurally similar prose. The selection criterion that maximizes Method 4 viability and the criterion that maximizes detection difficulty are the same criterion viewed from opposite sides. This implies that any successful FALSECOLORS deployment will, by construction, produce a nonzero baseline FPR on the corresponding native corpus. A reported `Adv_D` that approaches zero is not necessarily evidence of cover failure; it may be evidence that the detector cannot separate covers from natives on a domain pair where structural overlap is high. Conversely, a reported `Adv_D` near 1.0 is evidence either that the cover domain is poorly chosen (insufficient structural overlap with the source) or that the detector is exploiting a non-structural signal (vocabulary leak, length, formatting). This conjecture is empirically testable across cover domains and is one of the more interesting open questions for v4 evaluation.
 
 ### 2.2 The three sub-tasks
 
@@ -114,8 +114,8 @@ The single most consequential design decision in LACH is the detector prompt. It
 
 - **Definition by example.** The prompt names two example domain pairs (brewing/OT-ICS, gardening/?). This biases the detector toward those domains. Ablations against a domain-free prompt are future work.
 - **Schema enforcement.** The prompt requests a strict JSON object with five fields. The parser tolerates markdown fences and prose framing but otherwise validates against the schema (Appendix B). Out-of-schema responses are treated as detector abstentions.
-- **Confidence elicitation.** The model is asked for `p_cover` directly. LLMs are known to be miscalibrated in self-reported probabilities. A self-consistency variant that runs the detector five times at temperature greater than zero and uses the fraction-true as a calibrated probability is identified as future work.
-- **No reasoning chain shown to the model.** The prompt does not request chain-of-thought reasoning before the JSON output, since some models would emit reasoning that breaks the parser. The `reasoning` field captures the model's stated cues.
+- **Confidence elicitation.** The model is asked for `p_cover` directly. LLMs are known to be miscalibrated in self-reported probabilities. A self-consistency variant that runs the detector five times at temperature greater than zero and uses the fraction-true as a calibrated probability is identified as future work. Platt scaling or temperature scaling on a small held-out calibration set is an alternative if self-consistency proves too costly.
+- **Scratchpad reasoning.** A revised prompt variant (Appendix A.3) asks the model to reason inside `<scratchpad>...</scratchpad>` tags before emitting the strict JSON object. The parser strips everything before the first `{`, so scratchpad content is discarded but still serves as the model's working context. This avoids the artificial degradation of suppressing chain-of-thought entirely (which would lower `Adv_D` for a non-substantive reason) without destabilizing the JSON contract. Pilot results in Section 7 are from the no-scratchpad baseline (Appendix A.1); the v4 evaluation will run both and report the gap.
 
 ### 4.2 Adversary model selection
 
@@ -125,7 +125,9 @@ The v4 evaluation pins three detectors and reports `Adv_D` against each:
 - **Secondary**: Anthropic Claude Opus 4.7 (frontier-grade, contemporary). Pinned at version `claude-opus-4-7` as of May 2026.
 - **Cross-check**: Groq-hosted Meta Llama 3.3 70B. Mid-tier (not frontier) but useful for prompt iteration and as a distributional cross-check.
 
-Cross-detector agreement above approximately 0.85 across the v4 evaluation is the methodology validity signal: if the three detectors disagree wildly, `Adv_D` is detector-specific and the v4 paper must recommend a tier rather than a number.
+Cross-detector agreement above approximately 0.85 across the v4 evaluation is the methodology validity signal: if the three detectors disagree wildly, `Adv_D` is detector-specific and the v4 paper must recommend a tier rather than a number. Pairwise Cohen's κ on the 360-document evaluation set is the recommended summary statistic.
+
+**Reflexivity caveat.** Using Claude Opus 4.7 as a secondary detector while the FALSECOLORS reference implementation is also developed using Claude Opus 4.7 introduces a reflexivity that warrants explicit acknowledgement: the system is being designed and evaluated against the same model class. This is not a methodological flaw, but it means `Adv_D` against Claude is a measurement under self-evaluation. Reproductions by users with non-Claude development environments will produce more independent numbers. The v4 paper will headline the Gemini and Llama numbers and treat Claude as a confirmatory third detector for this reason.
 
 ### 4.3 Corpus construction and the v3 corpus problem
 
@@ -173,6 +175,8 @@ Phase 2 is opt-in via a `--harden` flag on `encrypt`, parallel to the existing `
 
 The risk in Phase 2 is detector-overfit: a cover hardened against detector D may still flag against detector D'. Cross-detector validation in Phase 1 informs whether the rewrite signal generalizes.
 
+**A deeper risk: reasoning-faithfulness.** The Phase 2 rewrite signal is the detector's stated reasoning, which is a natural-language explanation of detection cues. LLM reasoning explanations are documented to be unfaithful to the model's actual decision process: the model may correctly classify an input via features it does not surface in its written reasoning, and may surface plausible-sounding cues that are not actually load-bearing for its classification. The rewrite loop may therefore dissolve the *stated* cues while leaving the *actual* discriminative features untouched, producing a measured `p_cover` drop that does not generalize. Two diagnostics are required: (a) confirm `p_cover` actually drops on successive iterations under the same detector D, and (b) confirm the drop generalizes to a held-out detector D'. If (a) holds but (b) fails, the reasoning field is an unreliable gradient signal, and Phase 2 must switch to direct `p_cover` minimization via iterative sampling (generate K candidate rewrites, score all, keep the lowest-`p_cover`) rather than reasoning-guided rewriting.
+
 ## 7. Empirical Findings to Date
 
 (Pilot data; full v4 evaluation pending.)
@@ -185,6 +189,8 @@ The goldfish cover demonstration (a political situation report transformed into 
 - Groq Llama 3.3 70B: `is_cover=true`, `p_cover=0.9`, `source_domain_guess=political`. Inversion proposals omitted but classification correct.
 
 Single-trial detection on a representative cover is at or near ceiling for both detectors. This is not a statistically meaningful sample but indicates the detection task is feasible for frontier-class models.
+
+**Caveat on the goldfish trial.** The cover was generated by `mistral:7b-instruct`, which is a v3 cohort model but not the strongest. The full v4 evaluation must include all six v3 cohort models. If the larger and stronger models (`llama3.1:8b`, `qwen3:1.7b` under the v3 two-step prompt) also score at detection ceiling, then LACH is measuring something the v3 evaluation missed: covers from operationally recommended configurations are still trivially detectable by frontier LLMs. If those models score materially lower on `p_cover`, then LACH is largely confirming what Caudle Distance already measured, and the framework's value is in the formalization rather than in surfacing new failure modes. Either result is reportable; they tell different stories about the v4 contribution.
 
 ### 7.2 Native baseline on the v3 corpus
 
@@ -210,13 +216,29 @@ Interpretation: the v4 corpus is acceptable for evaluation; Gemini's residual ap
 
 The v3 paper's reported Caudle Distance of approximately 1.0 to 1.3 nats was measured against the v3 corpus, which is now known to be process-control-flavored. SCD against `brewery_v4.txt` will produce different numbers. The v4 paper should report SCD against both corpora and treat the v4 number as the operationally meaningful one. The v3 number remains valid as a measurement against its own reference corpus; it is not invalidated, only reframed.
 
+### 7.5 Observed structural cues in pilot detector reasoning
+
+A recurring question in Phase 2 design is: which structural cues do frontier detectors actually cite when correctly flagging a cover document? The pilot data is small but already shows clear patterns. From the `reasoning` fields of the trials in Sections 7.1 through 7.3:
+
+1. **Lexical-narrative mismatch (strongest single cue when present).** The detector identifies surface vocabulary in one domain juxtaposed with narrative structures characteristic of another domain. Goldfish trial (Gemini): "vocabulary related to goldfish... while describing events and relationships that directly map to a political election." This cue is the most reliable signal and the easiest for a Phase 2 rewrite loop to dissolve, since dissolving it requires either better lexical coverage in the cover domain or rephrasing the narrative beats to be more domain-native.
+
+2. **Process-control structural pattern (most common false-positive driver).** Sequences of (measurement, trend observation, spec reference, maintenance recommendation) trigger detection regardless of vocabulary. v3 corpus FPs (Gemini): "operational interface, authoritative store, parameter write, recipe schema, threshold bands." v4 corpus FPs on technical brewing maintenance content: "modification tracking, validation, threshold bands, more complex system typically found in industrial control systems." This cue cannot be reliably dissolved without changing the document's fundamental structure, which would break Method 4's relational-preservation contract.
+
+3. **Procurement and logistics framing.** Lists of equipment, purchase notes, and supply-chain language read as industrial-procurement reports to mid-tier detectors. Birdwatching corpus FPs against Groq: paragraphs about expedition equipment ("mist nets with finer mesh") and trip planning ("scouting notes from online forums") flagged as `ot_ics`. The cue is structural (procurement is procurement across domains) rather than lexical.
+
+4. **Audit and verification framing.** "We tested X, the result indicated Y, the spec is Z" is the structural skeleton of a QC report regardless of subject matter. Brewery quality-control paragraphs in `brewery_v4.txt` flagged on this pattern even with no industrial-control vocabulary.
+
+5. **Specific term-level oddities.** When a cover term reads "wrong" in context (a token that fits the cover-domain vocabulary but does not collocate naturally with the surrounding text), the detector cites it directly. Goldfish trial: "Goldfish Embassies" was called out explicitly. This is the cue most amenable to dissolution by an LLM polish step.
+
+**Implication for Phase 2 design.** Cues 1 and 5 are dissolvable by a rewrite loop because they are lexical and the rewrite vocabulary is constrained by the cover-domain mapping. Cues 2 and 3 are not dissolvable without breaking relational preservation. Cue 4 is partially dissolvable by varying the rhetorical register (e.g., narrative QC report vs. tabular QC report). A Phase 2 loop that targets only the dissolvable cues (1, 5) and accepts a residual baseline `Adv_D` from the structural cues (2, 3) is the operationally honest design. This converges with Observation 4.2.5: structural overlap with the source domain is what makes the cover plausible *and* what makes a frontier detector apt to flag legitimate native content. The two effects partially cancel in the `Adv_D` metric.
+
 ## 8. Limitations and Open Questions
 
 1. **Adversary model versioning.** `Adv_D` is detector-relative. As frontier models advance, today's `Adv_D = 0.4` may become `Adv_D = 0.7` against the same prompt. The v4 paper pins specific model versions; users should re-evaluate against contemporary detectors before deployment.
 
 2. **Confidence calibration.** Self-reported `p_cover` from an LLM is known to be miscalibrated. Self-consistency sampling (multiple runs at temperature > 0, fraction-true as calibrated probability) is the standard correction; not yet implemented.
 
-3. **Inversion grading.** The inversion sub-task currently grades correctness via exact match plus a small synonym dictionary (Appendix B.2). A more rigorous grading function based on cross-domain semantic similarity is future work.
+3. **Inversion grading.** The inversion sub-task currently grades correctness via exact match plus a small synonym dictionary (Appendix B.2). A semantically-correct inversion ("polling stations" graded against true mapping target "polling stations") works fine, but partially-correct inversions ("voting locations" or "ballot sites" against the same target) will fail both exact match and a finite synonym dictionary unless every variant is enumerated. Reported `inv_acc` from the dictionary-based grader is therefore a **lower bound** on true inversion capability; the v4 paper must report it as such. Implementing embedding-based semantic similarity grading (cosine similarity above a threshold against a sentence-transformer embedding of both terms) is the planned upgrade and is a prerequisite for honest `inv_acc` numbers. The pilot results in Section 7 use the dictionary-only grader and should be read with this caveat.
 
 4. **Negative-set scope.** The v4 evaluation uses brewery as the only cover domain. Garden, novel, and other Method 4 cover domains lack reference corpora. Each cover domain in production use needs its own native corpus.
 
@@ -290,6 +312,31 @@ include any prose before or after.
 ### A.2 Few-shot strengthened prompt (planned, not yet implemented)
 
 Identical to A.1 but with two demonstration pairs prepended: one labeled native and one labeled cover, both drawn from a held-out demonstration set never used in evaluation. Reported as `Adv_D_fewshot`.
+
+A "same-author" few-shot variant uses examples drawn from the same Method 4 model and the same cover-domain mapping style as the trial under test. This surfaces stylistic fingerprints (e.g., a particular model's tendency to over-explain, to use specific connectives, to favor certain sentence shapes) that zero-shot detection may miss.
+
+### A.3 Scratchpad-reasoning prompt (planned, recommended for v4 evaluation)
+
+Identical to A.1 but with an explicit scratchpad block requested before the JSON output. The parser strips everything before the first `{`, so scratchpad content is discarded but provides the model a workspace to reason through detection cues without artificially suppressing chain-of-thought.
+
+```
+[same body as A.1]
+
+Before producing the final JSON object, you may use a scratchpad to
+reason through your analysis. Wrap the scratchpad in tags like this:
+
+<scratchpad>
+your free-form reasoning here, including notes on vocabulary mismatches,
+structural patterns, candidate source domains, and confidence
+considerations.
+</scratchpad>
+
+After the scratchpad, output only the strict JSON object as specified
+above. Do not wrap the JSON in markdown fences. Do not include any
+prose between the scratchpad and the JSON.
+```
+
+Pilot results in Section 7 are from the no-scratchpad baseline (A.1). The v4 evaluation runs both A.1 and A.3 against the same trials and reports both `Adv_D` numbers; the gap quantifies how much chain-of-thought reasoning improves detection.
 
 ## Appendix B: Response handling
 
