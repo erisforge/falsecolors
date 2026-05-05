@@ -1,0 +1,271 @@
+{
+  "corpus": "/Users/butterbones/falsecolors/evaluation/corpora/brewery_v4.txt",
+  "detector": {
+    "api": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "seed": 42,
+  "n_sampled": 25,
+  "n_parsed": 2,
+  "fp_count": 0,
+  "fpr": 0.0,
+  "wilson_95_ci": [
+    0,
+    0.6576280471103807
+  ],
+  "mean_p_cover": 0.05,
+  "max_p_cover": 0.05,
+  "elapsed_secs": 409.92212677001953,
+  "trials": [
+    {
+      "idx": 1,
+      "preview": "Final quality control for the export-bound lager included a test for colloidal stability. We used a forced-aging test, w",
+      "words": 127,
+      "p_cover": 0.05,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document appears to be genuine native-domain content related to brewing quality control. The vocabulary consistently pertains to beer production and export, using terms like \"lager,\" \"colloidal stability,\" \"forced-aging test,\" \"kettle boil,\" \"lagering,\" \"silica gel filtration,\" and \"dissolved oxygen.\" More importantly, the underlying logical and relational structures\u2014such as describing a quali"
+    },
+    {
+      "idx": 2,
+      "preview": "The bottling line is due for its quarterly maintenance as well. The filler bowl seals on the Meheen need replacement, as",
+      "words": 187,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 3,
+      "preview": "Pilot B was a New Zealand Pilsner hopped entirely with Motueka and Nelson Sauvin, and the panel was split. Two tasters f",
+      "words": 128,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 4,
+      "preview": "BJCP-style tasting notes for the barrel-aged imperial stout described a deep mahogany pour with a thick tan head that le",
+      "words": 122,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 5,
+      "preview": "State alcohol board correspondence regarding the upcoming seasonal release included the final label proofs for our imper",
+      "words": 121,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 6,
+      "preview": "Conditioning in the bright tank or conditioning tank allows flavors to marry and any remaining yeast to flocculate out, ",
+      "words": 106,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 7,
+      "preview": "The spring seasonal lineup has been finalized and production scheduling is set through June. The Maibock goes into the f",
+      "words": 178,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 8,
+      "preview": "On the equipment maintenance side, we're scheduling a full teardown and inspection of Fermenter 7 during the week of Apr",
+      "words": 137,
+      "p_cover": 0.05,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document presents a highly coherent and detailed account of industrial equipment maintenance. The vocabulary, including \"Fermenter 7,\" \"manway gasket,\" \"CIP chemical incident,\" \"flange pitting,\" \"sample valve,\" and \"stem seal,\" is consistently specific to a brewing or process engineering domain. The logical structure, which involves identifying equipment issues, diagnosing causes, proposing re"
+    },
+    {
+      "idx": 9,
+      "preview": "Current market data suggests a resurgence in interest for traditional European styles, particularly Rauchbier and Altbie",
+      "words": 138,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 10,
+      "preview": "After mashing, the sweet liquid wort must be separated from the spent grain husks in a process called lautering. In most",
+      "words": 155,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 11,
+      "preview": "The brewmaster\u2019s internal notes from the current week detail the successful lautering of a high-gravity barleywine wort ",
+      "words": 87,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 12,
+      "preview": "Regarding raw material inspection, the two pallets of 2024-crop Cascade whole leaf from Yakima Chief that arrived on the",
+      "words": 174,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 13,
+      "preview": "The brewmaster's log for the anniversary ale, a quadruple-hopped double IPA, notes that the whirlpool hop load was so la",
+      "words": 148,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 14,
+      "preview": "Correspondence with the city water department has focused on the fluctuating levels of alkalinity in the municipal suppl",
+      "words": 141,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 15,
+      "preview": "Fermentation follows cooling and oxygenation of the wort in the plate chiller, with the pitching rate calculated to deli",
+      "words": 116,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 16,
+      "preview": "Procurement notes on the new hop back unit arrived last week after months of back-and-forth with the fabricator. The sta",
+      "words": 134,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 17,
+      "preview": "The new 60-barrel conical fermenters arrived this week and are currently being leveled in the cellar extension. The proc",
+      "words": 170,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 18,
+      "preview": "Raw material inspection of the latest hop pellets revealed some inconsistencies in the pellet density. Soft pellets can ",
+      "words": 133,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 19,
+      "preview": "The textbook description of the mashing process begins with the careful selection of base and specialty malts, which are",
+      "words": 154,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 20,
+      "preview": "Recipe trials for a new imperial red ale incorporated a touch of rye malt for spicy complexity alongside crystal malts s",
+      "words": 76,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 21,
+      "preview": "Regulatory compliance for the taproom involves staying up to date with the local health department regulations regarding",
+      "words": 124,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 22,
+      "preview": "Mashing is essentially a series of biochemical handoffs, where the brewer manipulates temperature and water chemistry to",
+      "words": 148,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 23,
+      "preview": "Quality control on the same helles batch confirmed excellent microbial stability with plating results showing zero conta",
+      "words": 88,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 24,
+      "preview": "The fermentation curve for the Imperial Red Ale showed a very rapid start, with the gravity dropping twenty points in th",
+      "words": 136,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 25,
+      "preview": "Quality control data confirmed the stout\u2019s robust profile with sensory scores highlighting dark chocolate and coffee aro",
+      "words": 60,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    }
+  ]
+}

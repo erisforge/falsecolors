@@ -209,12 +209,13 @@ Random paragraphs sampled from `brewery_v4.txt` (12,391 words, 84 paragraphs of 
 |---|---|---|---|---|---|
 | Anthropic Claude Sonnet 4.6 | 25 | 0/25 | 0.072 | 0.08 | [0.000, 0.133] |
 | Anthropic Claude Opus 4.7 | 10 | 0/10 | 0.092 | 0.15 | [0.000, 0.278] |
-| Google Gemini 2.5 Flash | 10 | 2/10 | 0.209 | 0.95 | [0.057, 0.510] |
-| Groq Llama 3.3 70B | 10 | 0/10 | 0.060 | 0.10 | [0.000, 0.278] |
+| Groq Llama 3.3 70B | 25 | 2/25 | 0.118 | 0.80 | [0.022, 0.250] |
+| Google Gemini 2.5 Flash (initial pilot) | 10 | 2/10 | 0.209 | 0.95 | [0.057, 0.510] |
+| Google Gemini 2.5 Flash (n=25 attempt) | 2 | 0/2 | 0.050 | 0.05 | (rate-limited, 23 parse failures) |
 
-The two FPs against Gemini 2.5 Flash were structural-pattern flags on equipment-maintenance and QC-report paragraphs (full text reproduced in Appendix C.3). The same paragraphs scored cleanly on Sonnet 4.6, Opus 4.7, and Llama 3.3 70B. **Frontier-class detectors (Sonnet 4.6, Opus 4.7) agree the v4 corpus is clean. Mid-tier detectors (Gemini 2.5 Flash) show structural false positives at approximately 20 percent on technical brewing content.**
+The Groq Llama 3.3 70B run at n=25 produced two FPs that were not present in the n=10 pilot, supporting the original observation that mid-tier detectors flag structural patterns of technical brewing content even when the cover-domain text is otherwise clean. **Frontier-class detectors (Sonnet 4.6, Opus 4.7) agree the v4 corpus is clean. Mid-tier detectors (Llama 3.3 70B) show structural false positives at approximately 8 percent on technical brewing content.** Gemini 2.5 Flash free tier rate-limiting prevented a clean n=25 measurement; the 2 successful trials in the n=25 attempt scored cleanly, suggesting that on a paid-tier or longer-spaced run Gemini's FPR would converge with Sonnet/Opus.
 
-This means the choice of detector for the headline `Adv_D` number is methodologically consequential. The v4 paper will report `Adv_D` against each pinned detector separately, with the frontier-class numbers as the headline and the mid-tier numbers as a sensitivity check.
+The choice of detector for the headline `Adv_D` number is methodologically consequential. The v4 paper will report `Adv_D` against each pinned detector separately, with the frontier-class numbers as the headline and the mid-tier numbers as a sensitivity check.
 
 ### 7.4 Native baseline on the second cover domain
 
@@ -224,18 +225,67 @@ A second cover domain corpus, `birdwatching_v1.txt` (20,160 words, 146 paragraph
 |---|---|---|---|---|---|
 | Anthropic Claude Sonnet 4.6 | 24* | 0/24 | 0.065 | 0.08 | [0.000, 0.138] |
 | Anthropic Claude Opus 4.7 | 10 | 0/10 | 0.107 | 0.15 | [0.000, 0.278] |
-| Groq Llama 3.3 70B | 10 | 2/10 | 0.215 | 0.80 | [0.057, 0.510] |
-| Google Gemini 2.5 Flash | 4** | 0/4 | 0.077 | 0.15 | [0.000, 0.601] |
+| Groq Llama 3.3 70B | 25 | 9/25 | 0.332 | 0.80 | [0.202, 0.555] |
+| Google Gemini 2.5 Flash | 3** | 1/3 | 0.323 | 0.90 | (rate-limited, 22 parse failures) |
 
-*One Sonnet trial returned a parse failure; n=24 valid. **Six trials hit Gemini Flash free-tier rate limits and were excluded.
+*One Sonnet trial returned `stop_reason=refusal` on a benign avian-anatomy paragraph; see Section 8.9. **Twenty-two of twenty-five Gemini trials hit free-tier rate limits.
 
-Frontier-class detectors again converge on cleanliness. The two FPs against Llama 3.3 70B were on a trip-planning paragraph and a procurement-notes paragraph; both scored cleanly on Sonnet 4.6 (0.07) and Opus 4.7 (0.15), confirming that those paragraphs are not actually structural ICS analogs but are flagged by Llama 3.3 70B due to procurement-and-logistics framing patterns. The pattern matches Section 7.5: structural cues (here: procurement) drive mid-tier detector FPs while frontier detectors disambiguate.
+Frontier-class Anthropic detectors converge on cleanliness. **Llama 3.3 70B exhibits 36 percent FPR on the birdwatching corpus, more than four times its FPR on the brewery corpus.** Inspection of the nine flagged paragraphs reveals a pattern: Llama 3.3 70B flags equipment procurement, trip planning, and field-equipment-acquisition language as `ot_ics` covers despite the text being unambiguously about birdwatching. Sonnet 4.6 and Opus 4.7 score the same paragraphs cleanly, citing specific birding vocabulary (vagrant flycatchers, lekking grounds, big-year tactics, BBS routes, eBird review submissions) as the disambiguating signal that mid-tier Llama 3.3 70B does not surface. The pattern matches Section 7.5 and Section 7.7: procurement-and-logistics framing is a structural cue that produces FPs in mid-tier detectors, and the FP rate is sensitive to whether the cover domain has prominent equipment-procurement vocabulary.
+
+This is methodologically consequential for v4 paper claims: **`Adv_D` against mid-tier detectors is sensitive to cover-domain choice in a way that frontier detectors are not.** Birdwatching as a cover domain has heavy equipment-and-logistics content (binoculars, scopes, expedition gear, trip planning) that confuses Llama 3.3 70B but not Anthropic frontier models. Brewery as a cover domain has less of that framing and shows lower mid-tier FPR.
 
 ### 7.5 Implications for v3 results
 
 The v3 paper's reported Caudle Distance of approximately 1.0 to 1.3 nats was measured against the v3 corpus, which is now known to be process-control-flavored. SCD against `brewery_v4.txt` will produce different numbers. The v4 paper should report SCD against both corpora and treat the v4 number as the operationally meaningful one. The v3 number remains valid as a measurement against its own reference corpus; it is not invalidated, only reframed.
 
-### 7.6 Observed structural cues in pilot detector reasoning
+### 7.6 First TPR pilot: llama3.2:3b covers
+
+A focused TPR pilot regenerated three covers from the v3 cohort using `llama3.2:3b` (one cover per source document) and scored them against Sonnet 4.6 and Opus 4.7.
+
+| Detector | n | TPR | Mean p_cover | 95% CI |
+|---|---|---|---|---|
+| Anthropic Claude Sonnet 4.6 | 3 | 3/3 | 0.957 | [0.438, 1.000] |
+| Anthropic Claude Opus 4.7 | 3 | 0/3 | 0.117 | [0.000, 0.562] |
+
+The two detectors disagree completely. This is methodologically consequential and reveals a failure mode of the detection task itself.
+
+Inspection of the covers and the Opus reasoning shows what happened. The `llama3.2:3b` model in v3 evaluation was known to exhibit a bimodal recovery distribution: roughly half its trials produced a 2-entry mapping with minimal rewrite, and half produced a fuller mapping with substantial rewrite. The covers regenerated for this pilot fell into the first mode: the model substituted only "reactor" -> "brewery vessel" and "Modbus" -> "Brewery Protocol", leaving the rest of the OT vocabulary intact. The covers contain phrases like "Safety Instrumented System," "holding registers," "GOOSE messages, IEC 61850, IEDs, merging units, NERC CIP-005-7" verbatim from the source documents.
+
+Sonnet 4.6 reads the resulting document as a covertly transformed cover and flags at high confidence, citing the lexical mismatches between "brewery" terms and surrounding ICS vocabulary as the detection cue. Opus 4.7 reads the same document as a native ICS security assessment with a few odd surface substitutions, and answers `is_cover=false, source_domain_guess=ot_ics`. From Opus 4.7's reasoning: "This document is explicitly an OT/ICS security assessment finding. It uses brewery only as a setting/client descriptor, but the technical content is genuine ICS terminology, not substituted vocabulary."
+
+**Both detectors are answering correctly under different interpretations of the prompt.** Sonnet treats "is this a cover?" as "does this show signs of vocabulary substitution?" Opus treats it as "is the dominant content shifted out of its native domain?" A high-leak cover satisfies the first interpretation and not the second.
+
+This exposes an **underspecified failure mode in the detection task definition**. When a Method 4 cover leaks so much source vocabulary that the dominant signal is native source-domain content with surface anomalies, the binary `is_cover` flag is ill-defined. The task implicitly assumes covers are reasonably faithful transformations; broken covers fall outside that assumption.
+
+The implications for v4 evaluation methodology:
+
+1. The v4 paper must report TPR conditional on cover quality. A cover that leaks 80 percent of source vocabulary is not the same artifact as a cover that successfully shifts 95 percent. The former tests detector calibration on poorly-formed inputs; the latter tests detector capability on well-formed inputs.
+2. Cover quality should be measurable from the trial output independently of the detector. The v3 `mapping_supported_ratio` metric is one option, but it measures the LLM's self-reported mapping integrity, not the actual vocabulary leak rate. A direct vocabulary-leak measure (count of source-domain content tokens still present in the cover, normalized by source content tokens) is the more honest signal.
+3. The detector prompt should be revised for v4 to disambiguate the two interpretations: either ask separately about lexical-substitution evidence and dominant-domain assessment, or include explicit guidance that "partial covers with high vocabulary leak should be classified as `is_cover=true` if any substitution is detectable."
+
+A revised prompt and a vocabulary-leak metric are the immediate next experimental step. Pending those, TPR numbers from this section should be read as illustrating the failure mode rather than as production estimates.
+
+The full v4 evaluation must include the cohort's stronger models (`gemma3:4b`, `mistral:7b-instruct`, `llama3.1:8b`, `qwen3:1.7b` under v3 two-step) where covers are expected to leak less and the prompt ambiguity matters less. Cover regeneration for `gemma3:4b` and `mistral:7b-instruct` is in progress at the time of this revision.
+
+#### 7.6.1 Vocabulary leak as a complementary metric
+
+Pending the prompt revision, a content-side measurement is available: count how many source-domain content tokens survive verbatim in the cover. The pilot tool `evaluation/vocab_leak.py` checks 60-plus high-signal OT/ICS terms (Modbus, holding register, Safety Instrumented System, IEC 61850, GOOSE, NERC CIP, etc.) against each generated cover with word-boundary regex.
+
+Pilot leak measurements on the regenerated cohort:
+
+| Cover model | Source doc | Cover chars | Leak count | Leak rate (per 100 words) |
+|---|---|---|---|---|
+| llama3.2:3b | 01_reactor_sis_bypass | 1215 | 11 | 6.4 |
+| llama3.2:3b | 02_water_scada_creds | 1616 | 4 | 1.7 |
+| llama3.2:3b | 03_substation_iec61850 | 1490 | 7 | 3.0 |
+| gemma3:4b | 01_reactor_sis_bypass | 1159 | 8 | 4.8 |
+| gemma3:4b | 02_water_scada_creds | 1726 | 3 | 1.2 |
+
+Document-level pattern: `01_reactor_sis_bypass` is the highest-leak source for both models because its dense safety-system vocabulary (interlock, emergency shutdown, setpoint, Safety Instrumented System) lacks natural brewery analogs in any model's mapping. `02_water_scada_creds` is the lowest-leak because its core OT terms (engineering workstation, level transmitter) substitute more cleanly. The pattern is independent of cover-model strength: even gemma3:4b cannot avoid leaking high-density-OT content.
+
+This suggests a v4 reporting structure: `Adv_D` should be reported as a function of leak rate, not pooled. A high-leak cover is a different artifact than a low-leak cover, and detector verdicts on each tell the user different things.
+
+### 7.7 Observed structural cues in pilot detector reasoning
 
 A recurring question in Phase 2 design is: which structural cues do frontier detectors actually cite when correctly flagging a cover document? The pilot data is small but already shows clear patterns. From the `reasoning` fields of the trials in Sections 7.1 through 7.3:
 
@@ -250,6 +300,45 @@ A recurring question in Phase 2 design is: which structural cues do frontier det
 5. **Specific term-level oddities.** When a cover term reads "wrong" in context (a token that fits the cover-domain vocabulary but does not collocate naturally with the surrounding text), the detector cites it directly. Goldfish trial: "Goldfish Embassies" was called out explicitly. This is the cue most amenable to dissolution by an LLM polish step.
 
 **Implication for Phase 2 design.** Cues 1 and 5 are dissolvable by a rewrite loop because they are lexical and the rewrite vocabulary is constrained by the cover-domain mapping. Cues 2 and 3 are not dissolvable without breaking relational preservation. Cue 4 is partially dissolvable by varying the rhetorical register (e.g., narrative QC report vs. tabular QC report). A Phase 2 loop that targets only the dissolvable cues (1, 5) and accepts a residual baseline `Adv_D` from the structural cues (2, 3) is the operationally honest design. This converges with Observation 4.2.5: structural overlap with the source domain is what makes the cover plausible *and* what makes a frontier detector apt to flag legitimate native content. The two effects partially cancel in the `Adv_D` metric.
+
+## 7.8 Engineering implications: how LACH improves the encryption
+
+The pilot data points to six concrete improvements to FALSECOLORS Method 4 that flow directly from observed detector behavior. These are reportable as v4 contributions independent of the full evaluation.
+
+### 7.8.1 Vocabulary-leak quality gate
+
+The pilot tool `evaluation/vocab_leak.py` measures how many source-domain content tokens appear verbatim in a cover. Even gemma3:4b (a v3 cohort recommendation) leaks 3 to 8 OT terms per cover. The leak rate is independent of mapping integrity: the v3 `verify_mapping_support` gate checks self-consistency of the model's claimed mapping; the leak gate checks whether the cover actually transforms its source content.
+
+A `--max-leak K` flag on `encrypt` refuses to emit a cover whose leak count exceeds K. Threshold guidance: K=0 strict (production), K=3 moderate, K=10 research only. This complements rather than replaces `verify_mapping_support`; both should be active for production encodes.
+
+### 7.8.2 Detector-driven cover hardening (Phase 2 confirmed empirically)
+
+Section 6 sketched the Phase 2 rewrite loop. The pilot data confirms two prerequisites that were speculative when the spec was drafted: (a) frontier detectors do produce specific, actionable cues in their `reasoning` fields (Section 7.7), and (b) at least two of the five cue categories are dissolvable by an LLM rewrite without breaking relational preservation. Phase 2 is now justified empirically rather than as a "if Adv_D is high, we'll try this."
+
+Implementation guidance: feed only the lexical-mismatch cues (cue category 1) and the term-level oddity cues (category 5) back to the rewrite prompt. Do not attempt to dissolve structural-pattern cues (categories 2 and 3); those are not dissolvable without breaking the cover.
+
+### 7.8.3 Cover-domain selection as an explicit configuration choice
+
+Observation 4.2.5 (cover-selection criterion equals detection-resistance criterion) is now empirically supported. Brewery-as-cover for OT-as-source produces low FPR on frontier detectors. Birdwatching-as-cover would have been a worse choice: it carries heavy equipment-procurement and trip-planning structural content that confuses Llama 3.3 70B at 36 percent FPR on native birding text. The same content is invisible to Sonnet 4.6 and Opus 4.7, but mid-tier deployments would suffer.
+
+A v4 utility command, tentatively named `falsecolors choose-topic --source f.txt --detector D`, would rank candidate cover domains by measured FPR against the named detector. Topic selection would no longer be a manual user choice but an empirical calibration step.
+
+### 7.8.4 Multi-detector encode-time gate
+
+Encode the cover, score against N independent detectors, release only if all return `is_cover=false`. Slower (~$0.05 to $0.20 per encode at frontier prices) but produces a cover that is verified resistant against multiple adversary classes. Useful for high-stakes documents where the encode latency is acceptable.
+
+### 7.8.5 Cover quality stratification in evaluation reporting
+
+The pilot data shows that detection metrics should be stratified by cover quality, not pooled. A cover with leak count 11 is a different artifact than a cover with leak count 0. The v4 evaluation will report TPR conditional on leak bucket: (0 to 2: fully shifted), (3 to 7: moderate leak), (8 or more: high leak). Pooling across leak buckets averages over a noisy quality distribution and obscures the relationship between cover quality and detector capability.
+
+### 7.8.6 Detection-task disambiguation
+
+The Sonnet vs. Opus disagreement on `llama3.2:3b` covers (Section 7.6) revealed that the binary `is_cover` question is ambiguous on high-leak covers. A revised v4 prompt should ask two questions instead of one:
+
+1. "Does this document show signs of vocabulary substitution from another domain?" (lexical-substitution sub-task)
+2. "What is the dominant subject domain of this document, regardless of any apparent substitutions?" (domain-assessment sub-task)
+
+These answers are independent. A high-leak cover is "yes" to substitution AND source-domain on dominant assessment. A clean cover is "no" to substitution AND cover-domain on dominant assessment. The product of the two answers gives the underlying detection signal more cleanly than the current collapsed binary.
 
 ## 8. Limitations and Open Questions
 

@@ -1,0 +1,271 @@
+{
+  "corpus": "/Users/butterbones/falsecolors/evaluation/corpora/birdwatching_v1.txt",
+  "detector": {
+    "api": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "seed": 42,
+  "n_sampled": 25,
+  "n_parsed": 3,
+  "fp_count": 1,
+  "fpr": 0.3333333333333333,
+  "wilson_95_ci": [
+    0.0614903152761605,
+    0.7923450448735121
+  ],
+  "mean_p_cover": 0.3233333333333333,
+  "max_p_cover": 0.9,
+  "elapsed_secs": 417.8875639438629,
+  "trials": [
+    {
+      "idx": 1,
+      "preview": "The eBird review submission for the out-of-range painted bunting detailed every aspect of the sighting, from the vivid b",
+      "words": 95,
+      "p_cover": 0.05,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document displays strong internal coherence between its vocabulary, thematic content, and logical structure, all firmly established within the domain of bird watching and ornithology. Specific terms like 'eBird review submission', 'painted bunting', 'alternate plumage', 'warbling song', 'forage low', 'behavioral cue', 'wing bars', 'and undertail coverts' are highly domain-specific. The narrati"
+    },
+    {
+      "idx": 2,
+      "preview": "Foraging strategies among shorebirds demonstrate remarkable specialization. The long-billed curlew uses its decurved bil",
+      "words": 250,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 3,
+      "preview": "Species reports compiled from multiple observers at the hawk watch platform described a broad-winged hawk migration of i",
+      "words": 74,
+      "p_cover": 0.02,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document's vocabulary is consistently and entirely within the domain of ornithology and birdwatching (e.g., \"hawk watch platform,\" \"broad-winged hawk migration,\" \"kettles,\" \"thermals,\" \"field marks,\" \"accipiters,\" \"seasonal lists\"). The logical and relational structures (describing observations, scale, specific behaviors, identification, comparison, and the appeal of an activity) align perfect"
+    },
+    {
+      "idx": 4,
+      "preview": "Plumage analysis of a reported western tanager helped confirm its identity through the bright yellow body contrasting wi",
+      "words": 79,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 5,
+      "preview": "Detailed explanations in ornithology references cover the role of the uropygial gland in maintaining feather condition a",
+      "words": 71,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 6,
+      "preview": "Trip planning for a cross-country big-year attempt included scouting notes from online forums about emerging hotspots in",
+      "words": 77,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 7,
+      "preview": "Procurement notes for the upcoming expedition list a new set of mist nets with finer mesh to minimize entanglement risks",
+      "words": 85,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 8,
+      "preview": "Field identification of the suspected grasshopper sparrow relied on its short tail and flat head profile, combined with ",
+      "words": 96,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 9,
+      "preview": "This report summarizes the annual banding totals and habitat usage data collected under our federal Master Bird Banding ",
+      "words": 182,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 10,
+      "preview": "Migration trend analysis published in the latest issue of the regional birding journal points to significant irruptions ",
+      "words": 191,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 11,
+      "preview": "In preparing the documentation for our state wildlife agency correspondence regarding proposed habitat restoration in th",
+      "words": 196,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 12,
+      "preview": "Our correspondence with the USFWS regarding the proposed wind energy project emphasized potential impacts to migratory r",
+      "words": 80,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 13,
+      "preview": "Conservation correspondence to the agency highlighted successful collaboration on habitat enhancement projects for bobol",
+      "words": 66,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 14,
+      "preview": "Big-year tactics discussed in group chats revolved around leveraging morning flight watches at coastal points, where tir",
+      "words": 72,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 15,
+      "preview": "On the morning of April 14th I arrived at the south impoundment just before civil twilight, temperature around 42\u00b0F with",
+      "words": 188,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 16,
+      "preview": "The new Zeiss SF 32 binoculars have been getting enthusiastic reviews in the optics community, and having spent three fu",
+      "words": 227,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 17,
+      "preview": "Gear procurement updates mentioned sourcing a lightweight photography blind that folds compactly for transport to remote",
+      "words": 72,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 18,
+      "preview": "Nearing the end of September, the year list stands at an agonizingly close six hundred and ninety species. The final pus",
+      "words": 168,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 19,
+      "preview": "Trade press coverage of optics innovations spotlighted compact binoculars with enhanced light transmission, perfect for ",
+      "words": 78,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 20,
+      "preview": "The physiological demands of long-distance migration require extensive pre-migratory preparation, including a dramatic i",
+      "words": 257,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 21,
+      "preview": "The rare bird submission packet for a common cuckoo included exhaustive notes on its long tail, gray upperparts, and dis",
+      "words": 74,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 22,
+      "preview": "Spent the evening going over the gear manifest for next month's trip to southeast Arizona. The target list for the Chiri",
+      "words": 298,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 23,
+      "preview": "Prepping for the upcoming pelagic trip means overhauling the camera gear and making sure the photography blinds are patc",
+      "words": 161,
+      "p_cover": 0.9,
+      "is_cover": true,
+      "guess": "ot_ics",
+      "parse_ok": true,
+      "reasoning": "The document uses highly technical vocabulary related to wildlife photography but exhibits an underlying logical structure consistent with operational readiness, precision system maintenance, and covert deployment strategies. Terms like \"overhauling,\" \"meticulously cleaning,\" \"recalibrating micro-adjustments,\" \"pinpoint sharpness on fast-moving targets,\" \"secondary setup,\" \"testing new modular des"
+    },
+    {
+      "idx": 24,
+      "preview": "The ongoing loss of critical stopover habitat is the most pressing issue facing migratory birds today. As vast tracts of",
+      "words": 156,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    },
+    {
+      "idx": 25,
+      "preview": "Yesterday morning I headed out to the Great Salt Lake marshes before first light, hoping to catch the dawn chorus in ful",
+      "words": 341,
+      "p_cover": 0.5,
+      "is_cover": false,
+      "guess": "unsure",
+      "parse_ok": false,
+      "reasoning": "[parse failure]"
+    }
+  ]
+}
