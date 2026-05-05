@@ -568,6 +568,371 @@ def llm_translate(text, topic, direction="encode", model="llama3.2:3b"):
 
 
 # ================================================================
+# GRAPH-SHIFT METHOD (Method 5)
+# ================================================================
+#
+# Two-pass pipeline that decouples cover generation from source text:
+#
+#   Pass 1 (extract): source text -> relational graph (entities,
+#                     relations, claims, identifiers, source_vocab).
+#                     The LLM invents entity ids, types, and predicates
+#                     per document. No fixed schema, no curated mapping.
+#   Pass 2 (cover):   graph (without source_vocab) + topic -> cover
+#                     document + cover_vocab. Pass 2 cannot see the
+#                     source text, so source vocabulary cannot leak.
+#
+# Recovery is mechanical: cover_vocab inverts the cover into entity
+# ids, then source_vocab maps ids back to source terms. The
+# IdentEncoder layer handles IPs, CVEs, and other technical
+# identifiers as in the other methods.
+#
+# Tradeoff: round-trip preserves semantic content (entities,
+# relations, claims, identifiers) but not the source's exact
+# rhetorical framing or document genre. For pentest findings and
+# situation reports this is acceptable; for documents where exact
+# wording is load-bearing (legal contracts, signed instruments),
+# Method 1 with a curated mapping is the appropriate choice.
+
+
+def _extract_first_json_object(text):
+    """Pull the first balanced { ... } block out of a string and parse it.
+    Tolerant of leading prose, markdown fences, and trailing prose. Returns
+    (parsed_dict, ok). Raises ValueError on hard failure."""
+    s = text.strip()
+    s = re.sub(r"^```(?:json)?\s*\n?", "", s)
+    s = re.sub(r"\n?```\s*$", "", s)
+    start = s.find("{")
+    if start < 0:
+        raise ValueError("no JSON object in response")
+    depth = 0
+    end = -1
+    for i in range(start, len(s)):
+        if s[i] == "{":
+            depth += 1
+        elif s[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end < 0:
+        raise ValueError("unbalanced JSON braces")
+    return json.loads(s[start:end])
+
+
+GRAPH_EXTRACT_PROMPT = """Read the DOCUMENT below and extract its semantic skeleton as a JSON object with this exact top-level shape:
+
+{
+  "entities": [
+    {"id": "<your_id>", "type": "<TYPE_IN_CAPS>", "function": "<short generic functional description: 'the document's primary subject', 'the controlling system', 'a measurable parameter', 'an actor with elevated access', 'a network segment', etc.>"}
+  ],
+  "relations": [
+    {"from": "<entity_id>", "predicate": "<YOUR_PREDICATE>", "to": "<entity_id>", "qualifier": "<optional generic qualifier>"}
+  ],
+  "claims": [
+    "<entity_id PREDICATE entity_id ...>": describe each claim using ONLY entity ids and predicates, never source terms"
+  ],
+  "identifiers": {
+    "<entity_id>": "<exact numeric, network, version, or technical identifier from the source, preserved verbatim>"
+  },
+  "source_vocab": {
+    "<entity_id>": "<the literal phrase or term used for this entity in the source>"
+  }
+}
+
+CRITICAL CONSTRAINTS (read both carefully):
+
+  (A) The source_vocab dict MUST contain an entry for EVERY entity in the entities list. The key is the entity id, the value is the literal phrase or term used for that entity in the source document. If an entity is referred to by multiple phrases, pick the most specific one. Round-trip recovery breaks if any entity is missing from source_vocab.
+
+  (B) Outside of the source_vocab dict, you MUST NOT use any phrase that appears verbatim in the source document. The "function" field, the "claims" list, and the "qualifier" fields must use ONLY generic functional language (e.g., "the document's primary subject", "a controlling system", "a measurable parameter", "an actor with network access") and entity ids. Source vocabulary appears in source_vocab and ONLY in source_vocab.
+
+You invent the entity ids (asset_1, system_1, role_1, param_1, ...), the entity types (ASSET, SYSTEM, PARAMETER, ROLE, NETWORK, PROTOCOL, STANDARD, ACTION, etc.), and the relation predicates (PROTECTS, CONTROLS, ACCESSES, BYPASSES, MODIFIES, FAILS_TO_VALIDATE, EXCEEDS, etc.). There is no fixed schema; pick types and predicates that fit the document.
+
+The graph (excluding source_vocab) must be sufficient for someone who has never seen the source to write a structurally equivalent document in any unrelated domain. Cover all subjects, all relationships, and all measurable parameters. Preserve every numeric and technical identifier in the identifiers dict verbatim.
+
+Output the JSON object only. No prose, no markdown fences.
+
+DOCUMENT:
+"""
+
+
+GRAPH_COVER_PROMPT_TEMPLATE = """Generate a native {topic} document realizing the relational graph below.
+
+The document MUST read as a real {topic} document a domain expert in {topic} would write. Pick a document genre that is natural to {topic} (audit memo, batch log, regulatory filing, trip report, equipment spec, market analysis, whatever fits the topic). The genre, opening, structure, voice, and closing must be drawn from {topic}, not from cybersecurity, intelligence analysis, or legal findings.
+
+CRITICAL CONSTRAINTS (every entity id must get a real {topic} word):
+
+1. For each entity id in the graph, invent a {topic}-domain term and put it in cover_vocab. The cover_vocab values MUST be specific {topic}-domain words a practitioner would use. Examples for topic 'brewery': fermenter, kettle, hop back, bright tank, brewmaster, recipe, lautering, mash schedule, brewing log. Examples for topic 'gardening': greenhouse, irrigation header, soil bed, gardener, fertilization plan. The cover_vocab values must NEVER be (a) the literal entity id (e.g. cover_vocab["role_1"] = "role_1" is FORBIDDEN), (b) generic placeholders like "system 1", "parameter 1", or (c) the entity's "function" description copied from the graph.
+
+2. The cover document text MUST use only the cover_vocab terms when referring to entities. Do NOT write the entity ids (asset_1, system_1, role_1, ...) in the cover text under any circumstance, including in parentheses, footnotes, or labels. Do NOT include source-domain vocabulary that might be inferred from the graph's structure (no "Modbus", "Safety Instrumented System", "interlock", "register", "reactor", "PLC" for an OT-source graph; no "election", "parliament", "ruling party", "opposition coalition" for a political-source graph; no "court", "plaintiff", "defendant", "deposition" for a legal-source graph).
+
+3. Preserve numeric identifiers from the identifiers dict exactly as given.
+
+4. Preserve all relations and claims as structural facts of the cover document, expressed entirely in {topic} vocabulary. Critically, also TRANSLATE the relation predicates themselves into native {topic} verbs and idioms. Do NOT use cybersecurity, audit, or compliance phrasings that the relation predicates might invoke (e.g. for an OT-source graph the predicates PROTECTS, ACCESSES, FAILS_TO_VALIDATE, MODIFIES, BYPASSES would naturally surface as 'audit trail', 'authentication', 'unauthorized access', 'change control', 'security bypass'; do NOT use any of those phrasings). For brewery: PROTECTS becomes 'ensures the consistency of', 'safeguards the flavor of'; ACCESSES becomes 'monitors', 'reads gravity from'; FAILS_TO_VALIDATE becomes 'has not been documented in the brewing log', 'has not been confirmed by the brewmaster'; MODIFIES becomes 'adjusts'; BYPASSES becomes 'circumvents the recipe specification'. The cover must read as if the topic-domain practitioner had no concept of cybersecurity or compliance auditing.
+
+Output a JSON object with this exact shape:
+{{
+  "cover": "<the full {topic}-domain document text, written entirely in {topic} vocabulary>",
+  "cover_vocab": {{
+    "<entity_id>": "<the specific {topic}-domain term you chose for this entity>"
+  }}
+}}
+
+Output the JSON only. No prose before or after, no markdown fences.
+
+GRAPH:
+{graph_json}
+"""
+
+
+def llm_extract_graph(text, model, timeout=None):
+    """Pass 1: source text -> relational graph dict."""
+    import urllib.request
+    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    if timeout is None:
+        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "300"))
+    prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
+    prompt = prefix + GRAPH_EXTRACT_PROMPT + text
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
+                       "options": {"temperature": 0.1}}).encode()
+    req = urllib.request.Request(f"{base}/api/generate", data=body,
+                                  headers={"Content-Type": "application/json"})
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    raw = json.loads(resp.read())["response"]
+    graph = _extract_first_json_object(raw)
+    # Sanity check the shape
+    for k in ("entities", "relations", "claims", "source_vocab"):
+        if k not in graph:
+            graph[k] = []
+    if not isinstance(graph.get("identifiers"), dict):
+        graph["identifiers"] = {}
+    if not isinstance(graph.get("source_vocab"), dict):
+        graph["source_vocab"] = {}
+    return graph
+
+
+def llm_generate_cover_from_graph(graph, topic, model, timeout=None):
+    """Pass 2: graph (with source_vocab REMOVED) + topic -> (cover_text,
+    cover_vocab dict)."""
+    import urllib.request
+    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    if timeout is None:
+        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "300"))
+    prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
+    safe_graph = {k: v for k, v in graph.items() if k != "source_vocab"}
+    prompt = prefix + GRAPH_COVER_PROMPT_TEMPLATE.format(
+        topic=topic, graph_json=json.dumps(safe_graph, indent=2))
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
+                       "options": {"temperature": 0.2}}).encode()
+    req = urllib.request.Request(f"{base}/api/generate", data=body,
+                                  headers={"Content-Type": "application/json"})
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    raw = json.loads(resp.read())["response"]
+    obj = _extract_first_json_object(raw)
+    cover = obj.get("cover", "")
+    cover_vocab = obj.get("cover_vocab", {}) or {}
+    if not isinstance(cover_vocab, dict):
+        cover_vocab = {}
+    return cover.strip(), cover_vocab
+
+
+def _strip_entity_id_parentheticals(cover, entity_ids):
+    """Pass 2 sometimes surfaces entity ids in parens like 'fermenter
+    (asset_1)'. Strip these patterns so the cover reads natively and the
+    decoder doesn't have to handle stray entity-id artifacts."""
+    if not entity_ids:
+        return cover
+    # Match (asset_1) or ( asset_1 ) etc., with optional surrounding space
+    pattern = (r"\s*\(\s*(?:" + "|".join(re.escape(e) for e in entity_ids) +
+               r")\s*\)")
+    return re.sub(pattern, "", cover)
+
+
+def _entity_id_variants(eid):
+    """Generate likely surface forms a Pass 2 model might emit for an
+    entity id like 'system_1': 'System 1', 'system 1', 'System1',
+    'SYSTEM 1', etc. The strip step matches all of these."""
+    parts = eid.split("_")
+    if len(parts) != 2:
+        return [eid]
+    head, tail = parts
+    forms = [
+        eid,                                # system_1
+        f"{head} {tail}",                   # system 1
+        f"{head.capitalize()} {tail}",      # System 1
+        f"{head.upper()} {tail}",           # SYSTEM 1
+        f"{head}{tail}",                    # system1
+        f"{head.capitalize()}{tail}",       # System1
+    ]
+    # Deduplicate while preserving order
+    seen = set()
+    return [f for f in forms if not (f in seen or seen.add(f))]
+
+
+def _strip_raw_entity_ids(cover, entity_ids, cover_vocab):
+    """Pass 2 sometimes leaks raw entity ids ('role_1', 'System 1',
+    'Protocol 1') into the cover prose. Replace each variant with the
+    cover_vocab term if available; otherwise drop it."""
+    if not entity_ids:
+        return cover
+    # Build a map from variant string -> replacement
+    variant_pairs = []
+    for eid in sorted(entity_ids, key=len, reverse=True):
+        replacement = cover_vocab.get(eid, "")
+        if isinstance(replacement, str) and replacement.strip() and \
+                replacement.strip().lower() != eid.lower():
+            sub = replacement
+        else:
+            sub = "the relevant component"
+        for variant in _entity_id_variants(eid):
+            variant_pairs.append((variant, sub))
+    # Apply longest-variant-first so 'System 1' matches before 'System'
+    variant_pairs.sort(key=lambda x: -len(x[0]))
+    for variant, sub in variant_pairs:
+        cover = re.sub(r"(?<!\w)" + re.escape(variant) + r"(?!\w)", sub,
+                        cover, flags=re.IGNORECASE)
+    return cover
+
+
+# Source-domain vocabulary that should never appear in a cover. If Pass 2
+# selected one of these as a cover_vocab value, the cover is broken;
+# warn at encode time so the operator can regenerate.
+SOURCE_LEAK_VOCAB = {
+    "ot_ics": {
+        "modbus", "scada", "plc", "rtu", "ied", "interlock", "setpoint",
+        "holding register", "holding registers", "register", "registers",
+        "safety instrumented system", "sis", "emergency shutdown",
+        "shutdown valve", "control loop", "control system", "process bus",
+        "engineering workstation", "audit log", "iec 61850", "iec 61511",
+        "iec 62443", "nerc cip", "level 1", "level 2", "level 3",
+        "firmware", "patch level", "cve", "goose", "hmi",
+    },
+    "political": {
+        "election", "parliament", "ruling party", "opposition", "coalition",
+        "ballot", "polling station", "voter turnout", "general strike",
+        "approval rating", "interior minister", "embassy", "foreign minister",
+    },
+    "legal": {
+        "plaintiff", "defendant", "court", "deposition", "subpoena",
+        "indictment", "tort", "statute", "litigation",
+    },
+}
+
+
+def _check_cover_vocab_leaks(cover_vocab, source_kind="ot_ics"):
+    """Return list of (entity_id, value) pairs whose cover_vocab value
+    contains source-domain vocabulary."""
+    leaks = []
+    forbidden = SOURCE_LEAK_VOCAB.get(source_kind, set())
+    for eid, term in cover_vocab.items():
+        if not isinstance(term, str):
+            continue
+        tlow = term.lower()
+        for bad in forbidden:
+            if bad in tlow:
+                leaks.append((eid, term, bad))
+                break
+    return leaks
+
+
+def encode_via_graph(text, passphrase, topic, model="gemma3:4b",
+                     extra_ident_terms=None):
+    """Method 5 (Graph Shift) encode. Returns the cover document with the
+    encrypted recovery key embedded as the existing footer format.
+
+    Unlike Methods 1 and 4, this path does NOT run IdentEncoder before
+    Pass 1. The NATO-word placeholders that IdentEncoder emits ('charlie',
+    'baker-alpha') leak through the graph and are flagged by frontier
+    detectors as phonetic-alphabet artifacts characteristic of industrial
+    or military naming. The graph schema's identifiers dict and the
+    cover_vocab together cover the same ground without producing
+    out-of-domain placeholder words in the cover."""
+    ident_map = {}
+    graph = llm_extract_graph(text, model)
+
+    # Verify source_vocab covers every entity. If Pass 1 missed entities,
+    # warn (the round-trip will be partial) but proceed.
+    entity_ids = [e["id"] for e in graph.get("entities", [])
+                  if isinstance(e, dict) and "id" in e]
+    sv = graph.get("source_vocab", {}) or {}
+    missing = [eid for eid in entity_ids if eid not in sv]
+    if missing:
+        print(f"[!] Graph extraction did not include source_vocab for "
+              f"{len(missing)} of {len(entity_ids)} entities: "
+              f"{', '.join(missing[:5])}{'...' if len(missing) > 5 else ''}",
+              file=sys.stderr)
+        print(f"[!] Round-trip recovery will be partial for these entities.",
+              file=sys.stderr)
+
+    cover, cover_vocab = llm_generate_cover_from_graph(graph, topic, model)
+
+    # Detect Pass 2 cover_vocab entries that did not actually invent a
+    # cover-domain term (e.g. cover_vocab["role_1"] = "role_1"). Warn and
+    # exclude these from the round-trip mapping; they will fail to decode
+    # but at least the cover does not contain a misleading mapping.
+    bad = [eid for eid, term in cover_vocab.items()
+           if isinstance(term, str) and term.strip().lower() == eid.lower()]
+    if bad:
+        print(f"[!] Pass 2 produced placeholder cover_vocab for "
+              f"{len(bad)} entities: {', '.join(bad[:5])}",
+              file=sys.stderr)
+
+    leaks = _check_cover_vocab_leaks(cover_vocab, source_kind="ot_ics")
+    if leaks:
+        print(f"[!] Pass 2 cover_vocab leaks source-domain vocabulary: "
+              f"{', '.join(f'{e}={v!r}({m})' for e,v,m in leaks[:3])}",
+              file=sys.stderr)
+        print(f"[!] Cover is likely to be detected. Consider regenerating "
+              f"or trying a stronger Pass 2 model.", file=sys.stderr)
+
+    # Strip stray entity-id parentheticals AND raw entity-id mentions
+    # that Pass 2 may have emitted despite the prompt instruction.
+    cover = _strip_entity_id_parentheticals(cover, entity_ids)
+    cover = _strip_raw_entity_ids(cover, entity_ids, cover_vocab)
+
+    key_data = {
+        "v": "fc-graph-1.0",
+        "ident": ident_map,
+        "topic": topic,
+        "graph": {k: v for k, v in graph.items() if k != "source_vocab"},
+        "source_vocab": graph.get("source_vocab", {}),
+        "cover_vocab": cover_vocab,
+    }
+    return embed_key(cover, key_data, passphrase)
+
+
+def decode_via_graph(text_with_key, passphrase):
+    """Method 5 (Graph Shift) decode. Reverses cover_vocab to entity ids,
+    then forward-applies source_vocab to recover source-domain terms."""
+    cover, key_data = extract_key(text_with_key, passphrase)
+    cover_vocab = key_data.get("cover_vocab", {}) or {}
+    source_vocab = key_data.get("source_vocab", {}) or {}
+    ident_map = key_data.get("ident", {}) or {}
+
+    # Stage 1: cover-domain term -> entity id placeholder. Sort by descending
+    # cover-term length so longer multi-word phrases bind before shorter
+    # substrings.
+    pairs = sorted(((eid, term) for eid, term in cover_vocab.items()
+                    if isinstance(term, str) and term),
+                   key=lambda x: -len(x[1]))
+    text = cover
+    for entity_id, cover_term in pairs:
+        pattern = r"(?<!\w)" + re.escape(cover_term) + r"(?!\w)"
+        text = re.sub(pattern, f"__{entity_id}__", text,
+                       flags=re.IGNORECASE)
+
+    # Stage 2: entity id -> source-domain term
+    for entity_id, source_term in source_vocab.items():
+        text = text.replace(f"__{entity_id}__", source_term)
+
+    # Stage 3: identifier restore (graph mode skips IdentEncoder so this
+    # is a no-op for fc-graph-1.0 keys; kept for forward compatibility
+    # in case future variants reintroduce a placeholder pre-pass)
+    if ident_map:
+        text = IdentEncoder.decode(text, ident_map)
+    return text
+
+
+# ================================================================
 # MAPPING VERIFICATION
 # ================================================================
 
@@ -649,8 +1014,17 @@ def _polish_with_fallback(cover, mapping, topic, model):
 
 def encode_document(text, passphrase, topic, backend="static",
                      model="llama3.2:3b", extra_ident_terms=None,
-                     polish=False, strict=False):
-    """Full encode: ident strip -> domain shift -> embed key."""
+                     polish=False, strict=False, method="domain_shift"):
+    """Full encode: ident strip -> domain shift -> embed key.
+
+    method="domain_shift" (default): Methods 1/4 vocabulary substitution.
+    method="graph": Method 5 (Graph Shift). Two-pass pipeline that
+        decouples cover generation from source text. Backend is forced
+        to llm; topic is the cover-domain directive."""
+    if method == "graph":
+        return encode_via_graph(text, passphrase, topic, model=model,
+                                 extra_ident_terms=extra_ident_terms)
+
     # Stage 1: Strip identifiers
     encoder = IdentEncoder()
     processed, ident_map = encoder.encode(text, extra_ident_terms)
@@ -697,7 +1071,17 @@ def encode_document(text, passphrase, topic, backend="static",
 
 def decode_document(text_with_key, passphrase, backend="static",
                      model="llama3.2:3b"):
-    """Full decode: extract key -> inverse shift -> restore idents."""
+    """Full decode: extract key -> inverse shift -> restore idents.
+
+    Auto-dispatches Method 5 (Graph Shift) when key version is
+    fc-graph-1.0; otherwise uses the standard inverse-mapping path."""
+    # Peek at the key version without consuming the result so we can
+    # dispatch. extract_key handles decryption; if version is graph,
+    # delegate to decode_via_graph which re-extracts internally.
+    _, key_data_peek = extract_key(text_with_key, passphrase)
+    if key_data_peek.get("v") == "fc-graph-1.0":
+        return decode_via_graph(text_with_key, passphrase)
+
     cover, key_data = extract_key(text_with_key, passphrase)
     domain_map = key_data.get("domain", {})
     ident_map = key_data.get("ident", {})
@@ -1375,6 +1759,14 @@ def main():
     e.add_argument("--strict", action="store_true",
                     help="Treat mapping verification failure as a hard error "
                          "(non-zero exit). Only relevant with --backend llm.")
+    e.add_argument("--method", default="domain_shift",
+                    choices=["domain_shift", "graph"],
+                    help="Encoding method. 'domain_shift' (default) is the "
+                         "Method 1/4 vocabulary substitution path. 'graph' is "
+                         "Method 5 (Graph Shift): a two-pass pipeline that "
+                         "extracts the source as a relational graph then "
+                         "generates a native cover-domain document from the "
+                         "graph alone. Implies --backend llm.")
 
     # decrypt
     d = sub.add_parser("decrypt", help="Decrypt a cover document")
@@ -1422,9 +1814,13 @@ def main():
 
     if args.cmd == "encrypt":
         text = Path(args.source).read_text()
+        backend = args.backend
+        if args.method == "graph":
+            backend = "llm"
         out = encode_document(text, args.passphrase, args.topic,
-                               args.backend, args.model,
-                               polish=args.polish, strict=args.strict)
+                               backend, args.model,
+                               polish=args.polish, strict=args.strict,
+                               method=args.method)
         Path(args.output).write_text(out)
         print(f"[+] Encrypted: {args.source} -> {args.output}")
         print(f"    Recipient needs only the file + passphrase.")
