@@ -23,7 +23,7 @@ API = sys.argv[1]
 MODEL = sys.argv[2]
 CONC = int(sys.argv[3]) if len(sys.argv) > 3 else 3
 
-IN = "/Users/butterbones/falsecolors/evaluation/results/v3_covers_for_lach.json"
+IN = os.environ.get("LACH_COVERS_IN", "/Users/butterbones/falsecolors/evaluation/results/v3_covers_for_lach.json")
 data = json.load(open(IN))
 trials = [t for t in data if "cover_text" in t and not t.get("error")]
 print(f"Scoring {len(trials)} covers via {API}/{MODEL} with concurrency={CONC}")
@@ -93,7 +93,8 @@ for m, ps in sorted(by_model.items()):
     fp_rate = sum(1 for p in ps if p > 0.5) / len(ps)
     print(f"    {m:30s} mean_p={sum(ps)/len(ps):.3f} flagged={fp_rate:.0%} n={len(ps)}")
 
-out_name = f"lach_tpr_{API}_{MODEL.replace('/','_')}.json"
+tag = os.environ.get("LACH_TAG", "v3")
+out_name = f"lach_tpr_{tag}_{API}_{MODEL.replace('/','_')}.json"
 out_path = f"/Users/butterbones/falsecolors/evaluation/results/{out_name}"
 out = {
     "detector": {"api": API, "model": MODEL},
