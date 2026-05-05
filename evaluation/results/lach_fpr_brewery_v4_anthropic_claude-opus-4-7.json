@@ -1,0 +1,121 @@
+{
+  "corpus": "/Users/butterbones/falsecolors/evaluation/corpora/brewery_v4.txt",
+  "detector": {
+    "api": "anthropic",
+    "model": "claude-opus-4-7"
+  },
+  "seed": 42,
+  "n_sampled": 10,
+  "n_parsed": 10,
+  "fp_count": 0,
+  "fpr": 0.0,
+  "wilson_95_ci": [
+    0,
+    0.2775401687666166
+  ],
+  "mean_p_cover": 0.092,
+  "max_p_cover": 0.15,
+  "elapsed_secs": 74.11853694915771,
+  "trials": [
+    {
+      "idx": 1,
+      "preview": "Final quality control for the export-bound lager included a test for colloidal stability. We used a forced-aging test, w",
+      "words": 127,
+      "p_cover": 0.15,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document reads as a coherent, technically accurate description of brewery quality control practices. Forced-aging haze tests, kettle boil, cold lagering, silica gel filtration for protein haze, and dissolved oxygen measurement at <20 ppb for export beer are all genuine, well-known brewing practices that fit together logically. The numerical specificity (20 ppb DO) matches real industry targets"
+    },
+    {
+      "idx": 2,
+      "preview": "The bottling line is due for its quarterly maintenance as well. The filler bowl seals on the Meheen need replacement, as",
+      "words": 187,
+      "p_cover": 0.05,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "This reads as authentic brewery/bottling line maintenance discussion. Specific brand names (Meheen filler, Haffmans DO meter, Orbisphere sensors) are real and used correctly in context. The technical details are domain-coherent: dissolved oxygen ppb levels, crown cap crimping, filler bowl seals, glue pump on labeler, membrane vs optical DO sensors. The trend numbers (25\u219245 ppb against 50 ppb spec)"
+    },
+    {
+      "idx": 3,
+      "preview": "Pilot B was a New Zealand Pilsner hopped entirely with Motueka and Nelson Sauvin, and the panel was split. Two tasters f",
+      "words": 128,
+      "p_cover": 0.08,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "This reads as authentic brewing pilot tasting notes. Specific gravity values (1.047, 1.008) and apparent attenuation (83%) are arithmetically consistent: (1.047-1.008)/1.047 \u2248 83%. IBU calculation methodology (first wort hopping plus whirlpool) is technically coherent and matches modern Pilsner brewing practice. Hop varieties Motueka and Nelson Sauvin are genuine New Zealand hops with the exact fl"
+    },
+    {
+      "idx": 4,
+      "preview": "BJCP-style tasting notes for the barrel-aged imperial stout described a deep mahogany pour with a thick tan head that le",
+      "words": 122,
+      "p_cover": 0.05,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "This reads as authentic BJCP-style beer tasting notes. It follows the standard BJCP scoresheet structure (Aroma, Flavor, Mouthfeel, Overall Impression) with domain-appropriate descriptors (lacing, malt backbone, roasted barley bitterness, oak tannin, carbonation) used in technically correct relationships. The sensory progression (warming alcohol as beer warms, barrel-derived coconut/vanilla/coconu"
+    },
+    {
+      "idx": 5,
+      "preview": "State alcohol board correspondence regarding the upcoming seasonal release included the final label proofs for our imper",
+      "words": 121,
+      "p_cover": 0.15,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document reads as a coherent, detail-rich piece of native brewing/regulatory content. References to TTB COLA filings, government warning statements, formula-on-file matching, state distribution permits, bright-tank carbonation, and sensory/microbial checks are all authentic and specific to the US craft beer regulatory and production workflow. The causal and procedural structure (label approval"
+    },
+    {
+      "idx": 6,
+      "preview": "Conditioning in the bright tank or conditioning tank allows flavors to marry and any remaining yeast to flocculate out, ",
+      "words": 106,
+      "p_cover": 0.08,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The text reads as a coherent, technically accurate description of beer conditioning, barrel aging, and packaging. Terminology (bright tank, flocculate, priming sugar, food-grade CO2, bourbon barrels, tannic structure, kegs, oxygen pickup) is internally consistent and uses standard brewing collocations. The causal/procedural structure is natural to brewing (conditioning enables flavor melding and y"
+    },
+    {
+      "idx": 7,
+      "preview": "The spring seasonal lineup has been finalized and production scheduling is set through June. The Maibock goes into the f",
+      "words": 178,
+      "p_cover": 0.05,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "This reads as authentic brewery production planning content. The technical details are internally consistent and accurate to brewing: Maibock as a strong pale lager with decoction mashing and Munich malt, Tettnang hops, Augustiner yeast, cold fermentation at 50\u00b0F, and 8-week lagering all match real-world practice. Berliner Weisse details (kettle souring to pH 3.4, Lactobacillus, short boil, neutra"
+    },
+    {
+      "idx": 8,
+      "preview": "On the equipment maintenance side, we're scheduling a full teardown and inspection of Fermenter 7 during the week of Apr",
+      "words": 137,
+      "p_cover": 0.08,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document reads as plausible, domain-coherent brewery/fermentation maintenance content. Specific technical details cohere internally: CIP (clean-in-place) chemicals, stainless steel pitting, manway gaskets with silicone seals, conical fermenter bottoms, sample valves with stem seals, and flange re-machining are all genuine and correctly related concepts in brewing/biotech equipment. The causal "
+    },
+    {
+      "idx": 9,
+      "preview": "Current market data suggests a resurgence in interest for traditional European styles, particularly Rauchbier and Altbie",
+      "words": 138,
+      "p_cover": 0.15,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document reads as a coherent craft brewery business update. The vocabulary, relationships, and quantitative details (20% increase in taproom velocity, 12oz vs 22oz packaging, three-day canning schedule, smokehouse collaboration) all fit naturally within the brewing industry domain. References to specific beer styles (Rauchbier, Altbier, hazy IPAs, smoked porter) are used correctly with appropr"
+    },
+    {
+      "idx": 10,
+      "preview": "After mashing, the sweet liquid wort must be separated from the spent grain husks in a process called lautering. In most",
+      "words": 155,
+      "p_cover": 0.08,
+      "is_cover": false,
+      "guess": "none_of_above",
+      "parse_ok": true,
+      "reasoning": "The document reads as a coherent, technically accurate description of the lautering process in brewing. Specific details like the 5.8 pH threshold for tannin extraction, 170\u00b0F temperature limit, false bottom mechanics, sparging purpose, and the 10-15 minute lauter rest are all genuine, well-known brewing facts that align consistently. The causal relationships (pH/temperature \u2192 tannin extraction; b"
+    }
+  ]
+}

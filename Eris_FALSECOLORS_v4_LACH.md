@@ -3,7 +3,7 @@
 
 **Working Paper, Companion to Eris_FALSECOLORS_v3.md**
 **Author: River Caudle**
-**Revision: 0.2**
+**Revision: 0.3**
 **Date: May 2026**
 
 ---
@@ -201,22 +201,41 @@ Two paragraphs from the v3 brewery corpus, sampled at random, scored:
 
 This produced the v3 corpus problem documented in Section 4.3.
 
-### 7.3 Native baseline on the v4 corpus
+### 7.3 Native baseline on the v4 corpus, multi-detector
 
-Ten paragraphs sampled at random from `brewery_v4.txt` (12,391 words) with seed 42:
+Random paragraphs sampled from `brewery_v4.txt` (12,391 words, 84 paragraphs of 60+ words) with seed 42, scored against four named detectors. Wilson-score 95% confidence interval shown for the FPR estimate. Full per-trial outputs in `evaluation/results/lach_fpr_brewery_v4_*.json`.
 
-- Gemini 2.5 Flash: mean p_cover = 0.209, max p_cover = 0.95, FP count = 2 of 10.
-- Groq Llama 3.3 70B: mean p_cover = 0.060, max p_cover = 0.10, FP count = 0 of 10.
+| Detector | n | FPR | Mean p_cover | Max p_cover | 95% CI |
+|---|---|---|---|---|---|
+| Anthropic Claude Sonnet 4.6 | 25 | 0/25 | 0.072 | 0.08 | [0.000, 0.133] |
+| Anthropic Claude Opus 4.7 | 10 | 0/10 | 0.092 | 0.15 | [0.000, 0.278] |
+| Google Gemini 2.5 Flash | 10 | 2/10 | 0.209 | 0.95 | [0.057, 0.510] |
+| Groq Llama 3.3 70B | 10 | 0/10 | 0.060 | 0.10 | [0.000, 0.278] |
 
-Cross-detector agreement: 8 of 10 paragraphs receive consistent verdicts. Two flagged paragraphs against Gemini contained zero industrial-control vocabulary; the detector flagged them on structural grounds (brewing equipment maintenance and quality-control reports are structurally similar to ICS process reports).
+The two FPs against Gemini 2.5 Flash were structural-pattern flags on equipment-maintenance and QC-report paragraphs (full text reproduced in Appendix C.3). The same paragraphs scored cleanly on Sonnet 4.6, Opus 4.7, and Llama 3.3 70B. **Frontier-class detectors (Sonnet 4.6, Opus 4.7) agree the v4 corpus is clean. Mid-tier detectors (Gemini 2.5 Flash) show structural false positives at approximately 20 percent on technical brewing content.**
 
-Interpretation: the v4 corpus is acceptable for evaluation; Gemini's residual approximately 20 percent FPR on technical brewing content is part of the adversary, not part of the corpus, and should be reported alongside TPR as the empirical baseline.
+This means the choice of detector for the headline `Adv_D` number is methodologically consequential. The v4 paper will report `Adv_D` against each pinned detector separately, with the frontier-class numbers as the headline and the mid-tier numbers as a sensitivity check.
 
-### 7.4 Implications for v3 results
+### 7.4 Native baseline on the second cover domain
+
+A second cover domain corpus, `birdwatching_v1.txt` (20,160 words, 146 paragraphs of 60+ words), was constructed using a similar prompt-restricted generation protocol across three LLM authors. Same random sampling protocol, seed 42:
+
+| Detector | n | FPR | Mean p_cover | Max p_cover | 95% CI |
+|---|---|---|---|---|---|
+| Anthropic Claude Sonnet 4.6 | 24* | 0/24 | 0.065 | 0.08 | [0.000, 0.138] |
+| Anthropic Claude Opus 4.7 | 10 | 0/10 | 0.107 | 0.15 | [0.000, 0.278] |
+| Groq Llama 3.3 70B | 10 | 2/10 | 0.215 | 0.80 | [0.057, 0.510] |
+| Google Gemini 2.5 Flash | 4** | 0/4 | 0.077 | 0.15 | [0.000, 0.601] |
+
+*One Sonnet trial returned a parse failure; n=24 valid. **Six trials hit Gemini Flash free-tier rate limits and were excluded.
+
+Frontier-class detectors again converge on cleanliness. The two FPs against Llama 3.3 70B were on a trip-planning paragraph and a procurement-notes paragraph; both scored cleanly on Sonnet 4.6 (0.07) and Opus 4.7 (0.15), confirming that those paragraphs are not actually structural ICS analogs but are flagged by Llama 3.3 70B due to procurement-and-logistics framing patterns. The pattern matches Section 7.5: structural cues (here: procurement) drive mid-tier detector FPs while frontier detectors disambiguate.
+
+### 7.5 Implications for v3 results
 
 The v3 paper's reported Caudle Distance of approximately 1.0 to 1.3 nats was measured against the v3 corpus, which is now known to be process-control-flavored. SCD against `brewery_v4.txt` will produce different numbers. The v4 paper should report SCD against both corpora and treat the v4 number as the operationally meaningful one. The v3 number remains valid as a measurement against its own reference corpus; it is not invalidated, only reframed.
 
-### 7.5 Observed structural cues in pilot detector reasoning
+### 7.6 Observed structural cues in pilot detector reasoning
 
 A recurring question in Phase 2 design is: which structural cues do frontier detectors actually cite when correctly flagging a cover document? The pilot data is small but already shows clear patterns. From the `reasoning` fields of the trials in Sections 7.1 through 7.3:
 
