@@ -1215,6 +1215,270 @@ class Sanitizer:
         self._token_map_inv[label] = token
         return label
 
+    # Domain-independent neutral vocabulary: function words, common verbs
+    # in their conjugations, common adjectives, adverbs, quantifiers,
+    # logical connectives, and generic document-structure words. ANY
+    # content token NOT in this set is sanitized to a TOKEN_NNN label
+    # in --strict mode. The list is intentionally minimal: domain-
+    # specific nouns and verbs are excluded so that OT, political,
+    # legal, medical, and financial source vocabulary all get
+    # obfuscated without per-domain configuration. Approximately 700
+    # entries; adjust by editing the literal below. All entries are
+    # lowercase; matching is case-insensitive.
+    NEUTRAL_VOCAB = frozenset({
+        # articles / determiners
+        "a", "an", "the", "this", "that", "these", "those", "another",
+        "each", "every", "any", "some", "no", "all", "both", "either",
+        "neither", "many", "much", "few", "several", "most", "more",
+        "less", "least", "such", "same", "other", "others", "own",
+        # pronouns
+        "i", "me", "my", "mine", "myself", "we", "us", "our", "ours",
+        "ourselves", "you", "your", "yours", "yourself", "yourselves",
+        "he", "him", "his", "himself", "she", "her", "hers", "herself",
+        "it", "its", "itself", "they", "them", "their", "theirs",
+        "themselves", "who", "whom", "whose", "which", "what", "where",
+        "when", "why", "how", "whoever", "whatever", "whenever",
+        "wherever", "however", "whichever",
+        # be / have / do
+        "is", "are", "was", "were", "be", "been", "being", "am",
+        "has", "have", "had", "having",
+        "do", "does", "did", "doing", "done",
+        # modal verbs
+        "will", "would", "shall", "should", "can", "could", "may",
+        "might", "must", "ought", "need",
+        # very common verbs (base + common conjugations)
+        "make", "makes", "made", "making", "take", "takes", "took",
+        "taken", "taking", "give", "gives", "gave", "given", "giving",
+        "use", "uses", "used", "using", "see", "sees", "saw", "seen",
+        "seeing", "show", "shows", "showed", "shown", "showing",
+        "find", "finds", "found", "finding", "tell", "tells", "told",
+        "telling", "ask", "asks", "asked", "asking", "go", "goes",
+        "went", "gone", "going", "come", "comes", "came", "coming",
+        "want", "wants", "wanted", "wanting", "need", "needs",
+        "needed", "needing", "include", "includes", "included",
+        "including", "exclude", "excludes", "excluded", "excluding",
+        "consider", "considers", "considered", "considering",
+        "indicate", "indicates", "indicated", "indicating",
+        "identify", "identifies", "identified", "identifying",
+        "describe", "describes", "described", "describing",
+        "report", "reports", "reported", "reporting",
+        "note", "notes", "noted", "noting",
+        "review", "reviews", "reviewed", "reviewing",
+        "verify", "verifies", "verified", "verifying",
+        "check", "checks", "checked", "checking",
+        "confirm", "confirms", "confirmed", "confirming",
+        "exceed", "exceeds", "exceeded", "exceeding",
+        "increase", "increases", "increased", "increasing",
+        "decrease", "decreases", "decreased", "decreasing",
+        "begin", "begins", "began", "begun", "beginning",
+        "end", "ends", "ended", "ending",
+        "start", "starts", "started", "starting",
+        "stop", "stops", "stopped", "stopping",
+        "continue", "continues", "continued", "continuing",
+        "remain", "remains", "remained", "remaining",
+        "appear", "appears", "appeared", "appearing",
+        "seem", "seems", "seemed", "seeming",
+        "occur", "occurs", "occurred", "occurring",
+        "happen", "happens", "happened", "happening",
+        "result", "results", "resulted", "resulting",
+        "cause", "causes", "caused", "causing",
+        "lead", "leads", "led", "leading",
+        "allow", "allows", "allowed", "allowing",
+        "prevent", "prevents", "prevented", "preventing",
+        "require", "requires", "required", "requiring",
+        "expect", "expects", "expected", "expecting",
+        "reach", "reaches", "reached", "reaching",
+        "follow", "follows", "followed", "following",
+        "produce", "produces", "produced", "producing",
+        "provide", "provides", "provided", "providing",
+        "receive", "receives", "received", "receiving",
+        "send", "sends", "sent", "sending",
+        "open", "opens", "opened", "opening",
+        "close", "closes", "closed", "closing",
+        "support", "supports", "supported", "supporting",
+        "address", "addresses", "addressed", "addressing",
+        "involve", "involves", "involved", "involving",
+        "perform", "performs", "performed", "performing",
+        "operate", "operates", "operated", "operating",
+        "occur", "occurred", "occurring",
+        "implement", "implements", "implemented", "implementing",
+        "establish", "establishes", "established", "establishing",
+        "maintain", "maintains", "maintained", "maintaining",
+        "evaluate", "evaluates", "evaluated", "evaluating",
+        "assess", "assesses", "assessed", "assessing",
+        "analyze", "analyzes", "analyzed", "analyzing",
+        "determine", "determines", "determined", "determining",
+        "examine", "examines", "examined", "examining",
+        "develop", "develops", "developed", "developing",
+        "create", "creates", "created", "creating",
+        "build", "builds", "built", "building",
+        "remove", "removes", "removed", "removing",
+        "add", "adds", "added", "adding",
+        "change", "changes", "changed", "changing",
+        # common adjectives
+        "able", "available", "additional", "appropriate", "apparent",
+        "approximate", "approximately", "average", "basic", "best",
+        "better", "common", "complete", "complex", "consistent",
+        "continued", "current", "different", "difficult", "early",
+        "easy", "effective", "efficient", "essential", "exact",
+        "existing", "expected", "extensive", "extreme", "factual",
+        "few", "final", "first", "former", "frequent", "full",
+        "future", "general", "good", "great", "high", "higher",
+        "highest", "important", "increased", "individual", "initial",
+        "internal", "external", "key", "large", "larger", "largest",
+        "last", "later", "latest", "likely", "limited", "local",
+        "long", "low", "lower", "lowest", "main", "major", "mid",
+        "middle", "minor", "minimum", "maximum", "moderate", "modest",
+        "near", "necessary", "new", "next", "normal", "official",
+        "old", "open", "ordinary", "original", "other", "particular",
+        "past", "permanent", "personal", "physical", "possible",
+        "potential", "present", "previous", "primary", "prior",
+        "private", "probable", "professional", "public", "raw",
+        "ready", "real", "recent", "regular", "relative", "relevant",
+        "reliable", "remote", "responsible", "right", "routine",
+        "secondary", "selected", "sensitive", "separate", "serious",
+        "short", "significant", "similar", "simple", "single", "small",
+        "smaller", "smallest", "specific", "standard", "strong",
+        "stronger", "strongest", "subsequent", "substantial",
+        "successful", "sufficient", "suitable", "temporary", "total",
+        "true", "typical", "unable", "unaware", "uncertain", "unclear",
+        "unable", "uniform", "unknown", "unsuitable", "unusual",
+        "upper", "useful", "valid", "various", "very", "wide",
+        "without", "wrong", "young",
+        # comparative connectives
+        "than", "as", "so", "such", "even", "so", "yet", "still",
+        "already", "again", "always", "almost", "also", "anyway",
+        "around", "back", "back", "below", "above", "down", "up",
+        "off", "on", "out", "over", "through", "under", "within",
+        # prepositions
+        "of", "to", "for", "with", "by", "in", "on", "at", "from",
+        "into", "onto", "upon", "until", "till", "since", "before",
+        "after", "during", "while", "whilst", "between", "among",
+        "amongst", "across", "behind", "beside", "beyond", "throughout",
+        "without", "within", "via", "per", "against",
+        # conjunctions
+        "and", "or", "nor", "but", "if", "unless", "because", "since",
+        "though", "although", "even", "whether", "while", "whilst",
+        "when", "whenever", "where", "wherever", "as", "yet", "so",
+        "that", "than", "until", "till", "once", "however", "moreover",
+        "therefore", "thus", "hence", "consequently", "furthermore",
+        "additionally", "nevertheless", "nonetheless", "instead",
+        "otherwise", "meanwhile",
+        # negation
+        "not", "no", "never", "none", "nothing", "nobody", "nowhere",
+        # adverbs
+        "always", "often", "sometimes", "rarely", "seldom", "never",
+        "usually", "occasionally", "frequently", "regularly",
+        "constantly", "continuously", "intermittently", "now",
+        "then", "today", "tomorrow", "yesterday", "soon", "later",
+        "earlier", "currently", "previously", "presently",
+        "afterwards", "beforehand", "shortly", "immediately",
+        "directly", "indirectly", "actually", "really", "truly",
+        "particularly", "especially", "specifically", "generally",
+        "broadly", "narrowly", "explicitly", "implicitly",
+        "approximately", "exactly", "precisely", "roughly",
+        "essentially", "mainly", "primarily", "secondarily",
+        "fully", "partially", "completely", "entirely", "wholly",
+        "largely", "extensively", "modestly", "minimally",
+        "extremely", "very", "quite", "rather", "fairly",
+        "highly", "deeply", "strongly", "weakly", "clearly",
+        "obviously", "evidently", "apparently", "presumably",
+        "possibly", "probably", "certainly", "definitely",
+        # generic structure / reporting words (domain-independent)
+        "report", "section", "subsection", "appendix", "summary",
+        "executive", "introduction", "conclusion", "background",
+        "context", "scope", "objective", "objectives", "purpose",
+        "overview", "preface", "abstract", "discussion", "analysis",
+        "results", "finding", "findings", "observation", "observations",
+        "recommendation", "recommendations", "conclusion", "conclusions",
+        "remarks", "details", "detail", "notes", "note", "memo",
+        "memorandum", "letter", "document", "documents", "documentation",
+        "page", "pages", "paragraph", "paragraphs", "list", "table",
+        "tables", "figure", "figures", "chart", "charts", "diagram",
+        "diagrams", "exhibit", "annex", "addendum", "preface",
+        "client", "subject", "topic", "title", "header", "footer",
+        "caption", "label", "tag", "name", "id", "identifier",
+        "reference", "references", "citation", "footnote",
+        "purpose", "intent", "intention", "rationale", "reason",
+        "reasons", "explanation", "explanations", "justification",
+        "method", "methods", "methodology", "approach", "approaches",
+        "process", "processes", "procedure", "procedures", "step",
+        "steps", "stage", "stages", "phase", "phases",
+        # generic entity-class words (domain-independent placeholders)
+        "item", "items", "thing", "things", "entity", "entities",
+        "object", "objects", "element", "elements", "component",
+        "components", "part", "parts", "piece", "pieces",
+        "instance", "instances", "case", "cases", "example", "examples",
+        "type", "types", "kind", "kinds", "sort", "sorts",
+        "category", "categories", "class", "classes", "group", "groups",
+        "set", "sets", "list", "lists", "collection", "collections",
+        "system", "systems",  # debatable; included because it's
+        "subsystem", "subsystems",  # so common in technical writing
+        "component", "components", "module", "modules",
+        # generic measurement / quantity words
+        "value", "values", "amount", "amounts", "quantity", "quantities",
+        "rate", "rates", "ratio", "ratios", "proportion", "proportions",
+        "percentage", "percent", "percentages", "fraction", "fractions",
+        "factor", "factors", "level", "levels", "degree", "degrees",
+        "extent", "magnitude", "size", "sizes", "scale", "scales",
+        "measure", "measures", "measurement", "measurements",
+        "number", "numbers", "count", "counts", "total", "totals",
+        "sum", "sums", "average", "averages", "mean", "means",
+        "median", "medians", "minimum", "maximum", "minimums",
+        "maximums", "range", "ranges", "limit", "limits",
+        "threshold", "thresholds", "boundary", "boundaries",
+        # generic time / date words (specific dates handled separately)
+        "time", "times", "date", "dates", "day", "days",
+        "week", "weeks", "month", "months", "year", "years",
+        "decade", "decades", "century", "centuries", "period",
+        "periods", "duration", "interval", "intervals", "moment",
+        "moments", "hour", "hours", "minute", "minutes", "second",
+        "seconds", "now", "today", "tomorrow", "yesterday",
+        # generic locality / direction (specific places obfuscated)
+        "here", "there", "everywhere", "anywhere", "somewhere",
+        "nowhere", "above", "below", "ahead", "behind", "back",
+        "forward", "backward", "left", "right", "upper", "lower",
+        "inner", "outer", "front", "rear",
+        "north", "south", "east", "west", "northern", "southern",
+        "eastern", "western", "central", "side", "sides",
+        # logical / argumentative
+        "yes", "no", "ok", "okay", "true", "false", "correct",
+        "incorrect", "valid", "invalid", "right", "wrong",
+        "approved", "rejected", "accepted", "denied",
+        "passed", "failed", "satisfied", "unsatisfied",
+        # severity / outcome (domain-independent)
+        "high", "medium", "low", "critical", "important", "moderate",
+        "minor", "major", "severe", "mild", "serious", "trivial",
+        "essential", "negligible", "significant", "insignificant",
+        "minimal", "maximal", "negligible", "considerable",
+        "substantial", "marginal",
+        "good", "bad", "better", "worse", "best", "worst",
+        "right", "wrong", "correct", "incorrect", "appropriate",
+        "inappropriate", "suitable", "unsuitable", "acceptable",
+        "unacceptable",
+        "successful", "unsuccessful", "effective", "ineffective",
+        "efficient", "inefficient", "useful", "useless",
+        "valid", "invalid", "secure", "insecure", "stable", "unstable",
+        "reliable", "unreliable", "consistent", "inconsistent",
+        # auxiliary / transitional phrases broken into words
+        "however", "moreover", "furthermore", "additionally",
+        "consequently", "therefore", "thus", "hence", "accordingly",
+        "subsequently", "nevertheless", "nonetheless", "instead",
+        "otherwise", "alternatively", "specifically", "particularly",
+        "essentially", "fundamentally", "primarily", "secondarily",
+        "ultimately", "finally", "initially", "originally",
+        "previously", "currently", "presently", "now", "then",
+        # generic actor / role placeholders (broad classes that
+        # often surface as entity descriptors)
+        "user", "users", "actor", "actors", "party", "parties",
+        "person", "people", "individual", "individuals", "team",
+        "teams", "group", "groups", "member", "members",
+        "client", "clients", "customer", "customers", "vendor",
+        "vendors", "supplier", "suppliers", "partner", "partners",
+        "operator", "operators", "manager", "managers",
+        "stakeholder", "stakeholders",
+    })
+
     # Common English words that are often capitalized at sentence starts or
     # in titles but should not be sanitized as proper nouns.
     _GENERIC_STOPWORDS = frozenset({
@@ -1336,9 +1600,40 @@ class Sanitizer:
         raw = struct.unpack(">I", h[:4])[0]
         return (raw % 9900) + 100
 
-    def sanitize(self, text, salt=None):
+    def _whitelist_pass(self, text, used_positions):
+        """Strict-mode pass: any content token NOT in NEUTRAL_VOCAB is
+        replaced with a TOKEN_NNN label. Tokens already covered by
+        used_positions (static TOKEN_CLASSES, generic-entity, or
+        IdentEncoder labels) are skipped. Pure regex, no model."""
+        out = []
+        # Walk the text token-by-token. A "token" here is a maximal run
+        # of word chars, allowing intra-token apostrophes and hyphens
+        # so words like "don't" and "state-of-the-art" stay intact.
+        for m in re.finditer(r"[A-Za-z][A-Za-z'-]*", text):
+            s, e = m.start(), m.end()
+            if set(range(s, e)) & used_positions:
+                continue
+            word = m.group()
+            wlow = word.lower()
+            if wlow in self.NEUTRAL_VOCAB:
+                continue
+            # Skip already-emitted opaque labels (TOKEN_NNN, ASSET_NNN,
+            # etc.) so the strict pass doesn't recursively label its
+            # own output. Labels follow the pattern PREFIX_NNN.
+            if re.match(r"^[A-Z]+(_\d+)?$", word) and "_" in word:
+                continue
+            out.append((s, e, "misc"))
+        return out
+
+    def sanitize(self, text, salt=None, strict=False):
         """Replace domain tokens with opaque labels and shift numerics
-        by a content-derived offset. Returns (sanitized_text, key_data)."""
+        by a content-derived offset. Returns (sanitized_text, key_data).
+
+        strict=True activates whitelist-based obfuscation: any content
+        token not in NEUTRAL_VOCAB is replaced with a TOKEN_NNN label
+        regardless of whether it appears in TOKEN_CLASSES or matches a
+        generic-entity pattern. This is more aggressive obfuscation,
+        domain-independent, with maximum coverage by default."""
         import time
         if salt is None:
             salt = f"fc-{int(time.time() * 1000000)}"
@@ -1376,6 +1671,16 @@ class Sanitizer:
             label = self._get_label(result[s:e], category)
             replacements.append((s, e, label))
             used_positions |= set(range(s, e))
+
+        # Pass 3 (strict mode only): whitelist-based obfuscation. Any
+        # content token not already labeled and not in NEUTRAL_VOCAB
+        # gets a TOKEN_NNN label. Maximum coverage by default; the
+        # operator opts in via --strict.
+        if strict:
+            for s, e, category in self._whitelist_pass(result, used_positions):
+                label = self._get_label(result[s:e], category)
+                replacements.append((s, e, label))
+                used_positions |= set(range(s, e))
 
         replacements.sort(key=lambda x: x[0], reverse=True)
         for s, e, label in replacements:
@@ -1448,9 +1753,10 @@ class Sanitizer:
         return result
 
 
-def sanitize_document(text, passphrase):
-    """Sanitize a document for LLM analysis. Returns embedded output."""
-    sanitized, key_data = Sanitizer().sanitize(text)
+def sanitize_document(text, passphrase, strict=False):
+    """Sanitize a document for LLM analysis. Returns embedded output.
+    strict=True uses whitelist-based obfuscation (NEUTRAL_VOCAB)."""
+    sanitized, key_data = Sanitizer().sanitize(text, strict=strict)
     return embed_key(sanitized, key_data, passphrase)
 
 
@@ -1947,6 +2253,13 @@ def main():
     s.add_argument("--source", required=True)
     s.add_argument("--passphrase", required=True)
     s.add_argument("--output", required=True)
+    s.add_argument("--strict", action="store_true",
+                    help="Whitelist-based obfuscation: any content token "
+                         "not in the neutral vocabulary (function words, "
+                         "common verbs, generic structure terms) is "
+                         "replaced with an opaque label. More aggressive "
+                         "coverage; works on any source domain without "
+                         "per-domain configuration.")
 
     # desanitize
     ds = sub.add_parser("desanitize", help="Recover from sanitized document")
@@ -1995,10 +2308,15 @@ def main():
 
     elif args.cmd == "sanitize":
         text = Path(args.source).read_text()
-        out = sanitize_document(text, args.passphrase)
+        out = sanitize_document(text, args.passphrase, strict=args.strict)
         Path(args.output).write_text(out)
         print(f"[+] Sanitized: {args.source} -> {args.output}")
-        print(f"    Safe for LLM analysis. Math preserved. Identities gone.")
+        if args.strict:
+            print(f"    Strict whitelist mode. Identities gone, "
+                  f"only neutral grammar preserved.")
+        else:
+            print(f"    Safe for LLM analysis. Math preserved. "
+                  f"Identities gone.")
 
     elif args.cmd == "desanitize":
         text = Path(args.source).read_text()
