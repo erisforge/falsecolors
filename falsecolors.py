@@ -619,86 +619,98 @@ def _extract_first_json_object(text):
     return json.loads(s[start:end])
 
 
-GRAPH_EXTRACT_PROMPT = """Read the DOCUMENT below and extract its semantic skeleton as a JSON object with this exact top-level shape:
+GRAPH_EXTRACT_PROMPT = """Extract the document below as a JSON graph. Use generic ids like e1, e2, e3 (not source phrases). Output JSON only, no markdown.
 
-{
-  "entities": [
-    {"id": "<your_id>", "type": "<TYPE_IN_CAPS>", "function": "<short generic functional description: 'the document's primary subject', 'the controlling system', 'a measurable parameter', 'an actor with elevated access', 'a network segment', etc.>"}
-  ],
-  "relations": [
-    {"from": "<entity_id>", "predicate": "<YOUR_PREDICATE>", "to": "<entity_id>", "qualifier": "<optional generic qualifier>"}
-  ],
-  "claims": [
-    "<entity_id PREDICATE entity_id ...>": describe each claim using ONLY entity ids and predicates, never source terms"
-  ],
-  "identifiers": {
-    "<entity_id>": "<exact numeric, network, version, or technical identifier from the source, preserved verbatim>"
-  },
-  "source_vocab": {
-    "<entity_id>": "<the literal phrase or term used for this entity in the source>"
-  }
-}
+Schema:
+{"entities":[{"id":"e1","type":"asset"}],"relations":[{"from":"e1","verb":"protects","to":"e2"}],"facts":["e1 protects e2"],"numbers":{"e3":"185"},"vocab":{"e1":"the exact source phrase","e2":"another source phrase"}}
 
-CRITICAL CONSTRAINTS (read both carefully):
-
-  (A) The source_vocab dict MUST contain an entry for EVERY entity in the entities list. The key is the entity id, the value is the literal phrase or term used for that entity in the source document. If an entity is referred to by multiple phrases, pick the most specific one. Round-trip recovery breaks if any entity is missing from source_vocab.
-
-  (B) Outside of the source_vocab dict, you MUST NOT use any phrase that appears verbatim in the source document. The "function" field, the "claims" list, and the "qualifier" fields must use ONLY generic functional language (e.g., "the document's primary subject", "a controlling system", "a measurable parameter", "an actor with network access") and entity ids. Source vocabulary appears in source_vocab and ONLY in source_vocab.
-
-You invent the entity ids (asset_1, system_1, role_1, param_1, ...), the entity types (ASSET, SYSTEM, PARAMETER, ROLE, NETWORK, PROTOCOL, STANDARD, ACTION, etc.), and the relation predicates (PROTECTS, CONTROLS, ACCESSES, BYPASSES, MODIFIES, FAILS_TO_VALIDATE, EXCEEDS, etc.). There is no fixed schema; pick types and predicates that fit the document.
-
-The graph (excluding source_vocab) must be sufficient for someone who has never seen the source to write a structurally equivalent document in any unrelated domain. Cover all subjects, all relationships, and all measurable parameters. Preserve every numeric and technical identifier in the identifiers dict verbatim.
-
-Output the JSON object only. No prose, no markdown fences.
+Rules:
+- ids must be e1, e2, e3, ... (NEVER source phrases as ids)
+- vocab MUST have an entry for every entity, mapping id -> exact source phrase
+- entities, relations, facts, numbers MUST NOT contain any source phrase, only ids and generic words
 
 DOCUMENT:
 """
 
 
-GRAPH_COVER_PROMPT_TEMPLATE = """Generate a native {topic} document realizing the relational graph below.
+GRAPH_COVER_PROMPT_TEMPLATE = """Write a short {topic} document. Use only {topic} vocabulary. Output JSON only.
 
-The document MUST read as a real {topic} document a domain expert in {topic} would write. Pick a document genre that is natural to {topic} (audit memo, batch log, regulatory filing, trip report, equipment spec, market analysis, whatever fits the topic). The genre, opening, structure, voice, and closing must be drawn from {topic}, not from cybersecurity, intelligence analysis, or legal findings.
+Schema:
+{{"cover":"...full document text...","names":{{"e1":"a {topic} word","e2":"another {topic} word"}}}}
 
-CRITICAL CONSTRAINTS (every entity id must get a real {topic} word):
-
-1. For each entity id in the graph, invent a {topic}-domain term and put it in cover_vocab. The cover_vocab values MUST be specific {topic}-domain words a practitioner would use. Examples for topic 'brewery': fermenter, kettle, hop back, bright tank, brewmaster, recipe, lautering, mash schedule, brewing log. Examples for topic 'gardening': greenhouse, irrigation header, soil bed, gardener, fertilization plan. The cover_vocab values must NEVER be (a) the literal entity id (e.g. cover_vocab["role_1"] = "role_1" is FORBIDDEN), (b) generic placeholders like "system 1", "parameter 1", or (c) the entity's "function" description copied from the graph.
-
-2. The cover document text MUST use only the cover_vocab terms when referring to entities. Do NOT write the entity ids (asset_1, system_1, role_1, ...) in the cover text under any circumstance, including in parentheses, footnotes, or labels. Do NOT include source-domain vocabulary that might be inferred from the graph's structure (no "Modbus", "Safety Instrumented System", "interlock", "register", "reactor", "PLC" for an OT-source graph; no "election", "parliament", "ruling party", "opposition coalition" for a political-source graph; no "court", "plaintiff", "defendant", "deposition" for a legal-source graph).
-
-3. Preserve numeric identifiers from the identifiers dict exactly as given.
-
-4. Preserve all relations and claims as structural facts of the cover document, expressed entirely in {topic} vocabulary. Critically, also TRANSLATE the relation predicates themselves into native {topic} verbs and idioms. Do NOT use cybersecurity, audit, or compliance phrasings that the relation predicates might invoke (e.g. for an OT-source graph the predicates PROTECTS, ACCESSES, FAILS_TO_VALIDATE, MODIFIES, BYPASSES would naturally surface as 'audit trail', 'authentication', 'unauthorized access', 'change control', 'security bypass'; do NOT use any of those phrasings). For brewery: PROTECTS becomes 'ensures the consistency of', 'safeguards the flavor of'; ACCESSES becomes 'monitors', 'reads gravity from'; FAILS_TO_VALIDATE becomes 'has not been documented in the brewing log', 'has not been confirmed by the brewmaster'; MODIFIES becomes 'adjusts'; BYPASSES becomes 'circumvents the recipe specification'. The cover must read as if the topic-domain practitioner had no concept of cybersecurity or compliance auditing.
-
-Output a JSON object with this exact shape:
-{{
-  "cover": "<the full {topic}-domain document text, written entirely in {topic} vocabulary>",
-  "cover_vocab": {{
-    "<entity_id>": "<the specific {topic}-domain term you chose for this entity>"
-  }}
-}}
-
-Output the JSON only. No prose before or after, no markdown fences.
+For each entity id in the graph, invent a {topic} word and put it in names. Use those words in the cover text. Never write e1, e2, e3 in the cover text. Never use cybersecurity, security audit, OT, ICS, intelligence, military, legal, or political vocabulary in the cover text or names. Keep numbers from the graph's "numbers" dict exactly as-is.
 
 GRAPH:
 {graph_json}
 """
 
 
-def llm_extract_graph(text, model, timeout=None):
-    """Pass 1: source text -> relational graph dict."""
+def _llm_call(prompt, model, backend, timeout):
+    """Backend-agnostic LLM call. Supports backend in {ollama, groq,
+    anthropic}. Returns raw text response."""
     import urllib.request
-    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    if backend == "ollama":
+        base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        body = json.dumps({"model": model, "prompt": prompt, "stream": False,
+                           "options": {"temperature": 0.1}}).encode()
+        req = urllib.request.Request(
+            f"{base}/api/generate", data=body,
+            headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())["response"]
+    if backend == "groq":
+        api_key = os.environ.get("GROQ_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not set for backend=groq")
+        body = json.dumps({"model": model,
+                           "messages": [{"role": "user", "content": prompt}],
+                           "temperature": 0.1, "max_tokens": 4096}).encode()
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions", data=body,
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {api_key}",
+                     "User-Agent": "eris-falsecolors-graph/0.1"})
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())["choices"][0]["message"]["content"]
+    if backend == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY not set for backend=anthropic")
+        body = json.dumps({"model": model, "max_tokens": 4096,
+                           "messages": [{"role": "user", "content": prompt}]
+                           }).encode()
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages", data=body,
+            headers={"Content-Type": "application/json",
+                     "x-api-key": api_key,
+                     "anthropic-version": "2023-06-01"})
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = json.loads(resp.read())
+        for block in data.get("content", []) or []:
+            if block.get("type") == "text" and block.get("text"):
+                return block["text"]
+        return f"[empty content, stop_reason={data.get('stop_reason','?')}]"
+    raise ValueError(f"unknown backend {backend!r}")
+
+
+def llm_extract_graph(text, model, timeout=None, backend="ollama"):
+    """Pass 1: source text -> relational graph dict."""
     if timeout is None:
         timeout = float(os.environ.get("OLLAMA_TIMEOUT", "300"))
     prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
     prompt = prefix + GRAPH_EXTRACT_PROMPT + text
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
-                       "options": {"temperature": 0.1}}).encode()
-    req = urllib.request.Request(f"{base}/api/generate", data=body,
-                                  headers={"Content-Type": "application/json"})
-    resp = urllib.request.urlopen(req, timeout=timeout)
-    raw = json.loads(resp.read())["response"]
+    raw = _llm_call(prompt, model, backend, timeout)
     graph = _extract_first_json_object(raw)
+    # Normalize to canonical field names used by encode_via_graph and
+    # decode_via_graph. Pass 1 prompts may use either the long-form schema
+    # (source_vocab, claims, identifiers) or the short-form schema (vocab,
+    # facts, numbers). Both are accepted.
+    if "vocab" in graph and "source_vocab" not in graph:
+        graph["source_vocab"] = graph.pop("vocab")
+    if "facts" in graph and "claims" not in graph:
+        graph["claims"] = graph.pop("facts")
+    if "numbers" in graph and "identifiers" not in graph:
+        graph["identifiers"] = graph.pop("numbers")
     # Sanity check the shape
     for k in ("entities", "relations", "claims", "source_vocab"):
         if k not in graph:
@@ -710,26 +722,21 @@ def llm_extract_graph(text, model, timeout=None):
     return graph
 
 
-def llm_generate_cover_from_graph(graph, topic, model, timeout=None):
+def llm_generate_cover_from_graph(graph, topic, model, timeout=None,
+                                    backend="ollama"):
     """Pass 2: graph (with source_vocab REMOVED) + topic -> (cover_text,
     cover_vocab dict)."""
-    import urllib.request
-    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     if timeout is None:
         timeout = float(os.environ.get("OLLAMA_TIMEOUT", "300"))
     prefix = os.environ.get("OLLAMA_PROMPT_PREFIX", "")
     safe_graph = {k: v for k, v in graph.items() if k != "source_vocab"}
     prompt = prefix + GRAPH_COVER_PROMPT_TEMPLATE.format(
         topic=topic, graph_json=json.dumps(safe_graph, indent=2))
-    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
-                       "options": {"temperature": 0.2}}).encode()
-    req = urllib.request.Request(f"{base}/api/generate", data=body,
-                                  headers={"Content-Type": "application/json"})
-    resp = urllib.request.urlopen(req, timeout=timeout)
-    raw = json.loads(resp.read())["response"]
+    raw = _llm_call(prompt, model, backend, timeout)
     obj = _extract_first_json_object(raw)
     cover = obj.get("cover", "")
-    cover_vocab = obj.get("cover_vocab", {}) or {}
+    # Accept either "cover_vocab" (long-form) or "names" (short-form)
+    cover_vocab = obj.get("cover_vocab") or obj.get("names") or {}
     if not isinstance(cover_vocab, dict):
         cover_vocab = {}
     return cover.strip(), cover_vocab

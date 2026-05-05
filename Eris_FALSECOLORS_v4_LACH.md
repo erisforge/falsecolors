@@ -492,9 +492,30 @@ The v4 paper recommends the first option for a working Method 5 deployment and t
 
 **Proves:** the two-pass architecture is implementable, the round-trip mechanics work when both passes comply, the post-processing layer correctly detects compliance failures, and the key-embedding format extends cleanly to the new schema.
 
-**Does not prove:** that Method 5 actually reduces detector capability against frontier-class adversaries. The single completed cover scored at p=0.95 to 0.97, which is in the same band as Method 4 covers. To make a falsifiable claim about Method 5's improvement over Method 4, the encode pipeline must reliably produce covers that satisfy all four compliance constraints. With gemma3:4b that does not happen.
+**Does not prove:** that Method 5 actually reduces detector capability against frontier-class adversaries when both passes are run on a locally-runnable model. The single completed cover under the long-form prompts scored at p=0.95 to 0.97, which is in the same band as Method 4 covers. To make a falsifiable claim about Method 5's improvement over Method 4, the encode pipeline must reliably produce covers that satisfy the compliance constraints at the document scale of real-world findings.
 
-The pilot is also a methodological data point for the v4 paper itself: the LACH eval framework correctly flagged the implementation gap before any deployment decision was made. The detector-bounded distinguishing game is doing exactly what it was designed to do, including catching architectures that fail empirical tests they were built to satisfy.
+The pilot is a methodological data point for the v4 paper itself: the LACH eval framework correctly flagged the implementation gap before any deployment decision was made. The detector-bounded distinguishing game is doing exactly what it was designed to do, including catching architectures that fail empirical tests they were built to satisfy.
+
+### 7.9.7 The TPR-vs-recovery tradeoff under prompt simplification
+
+A second iteration replaced the long multi-constraint Pass 1 and Pass 2 prompts with drastically shorter forms (six-line schema, a few rules each) and ran on `llama3.1:8b` (8B parameters, larger than gemma3:4b). The simplified prompts use a compressed schema (`vocab` instead of `source_vocab`, `names` instead of `cover_vocab`, `e1, e2, ...` instead of typed-prefix entity ids); the encode pipeline normalizes back to the canonical schema after extraction.
+
+Result on `01_reactor_sis_bypass.txt`:
+
+| Metric | Long prompt + gemma3:4b | Short prompt + llama3.1:8b |
+|---|---|---|
+| Sonnet detection | p=0.97, DETECTED | p=0.12, **EVADED** (guess=none_of_above) |
+| Entities extracted | 5 of ~8 | 2 of ~8 |
+| Cover length | 2131 chars | 190 chars |
+| Round-trip recovery | 0.043 (broken) | broken (case/space mismatch in cover_vocab vs cover prose) |
+
+The simplified-prompt iteration produced **the first cover in the pilot to evade frontier-class detection** under the source-identification scoring rule. Sonnet judged the short brewery-audit sentence as genuine native content. The cover, however, dropped most of the source's relational content (attacker, interlock thresholds, IP address, port, alarm log, audit trail, IEC 61511 reference) and the round-trip recovery failed on a surface-form mismatch (cover_vocab returned `"MashTun"` while the cover prose used `"mash tun"`; the decoder's word-boundary regex did not match across the case-and-space gap).
+
+This is a methodological finding: **with locally-runnable models in the 4-8B band there is a TPR-vs-recovery tradeoff that the prompt length controls.** Long detailed prompts produce covers that retain source content (high recovery) but expose enough source structure for the detector to identify the source domain (high TPR). Short minimal prompts produce covers that evade detection (low TPR) by dropping source entities (low recovery). The two endpoints lie on a frontier; the middle of the frontier may not be reachable with current local-model compliance.
+
+A near-term engineering fix for the surface-form mismatch is straightforward: normalize cover_vocab values to lowercase and apply fuzzy matching that tolerates case and whitespace variations during decode. That would convert the second-row "broken recovery" into a usable round-trip while preserving the evasion. It would not address the deeper issue (the model dropped source content during graph extraction).
+
+The overall conclusion stands: Method 5's two-pass architecture is the right structural direction for Method 4's failures, but the implementation requires a model that reliably extracts complete relational graphs from arbitrary source documents and generates faithful cover-domain prose constrained by those graphs. No 4-8B locally-runnable model in the v4 cohort meets both constraints simultaneously.
 
 ## 8. Limitations and Open Questions
 
