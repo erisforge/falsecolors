@@ -90,6 +90,14 @@ python falsecolors.py desanitize \
 
 The source tells an attacker how to bypass safety systems at a chemical plant. The cover tells someone a brewery has a recipe database access control issue. Same logical structure. Different domain. Perfect recovery with the passphrase.
 
+## Threat Model
+
+FALSECOLORS is deniable against **time-constrained pattern-matching adversaries**: customs officers and litigation reviewers under deadline, automated content classifiers running keyword filters, cloud providers performing routine log triage, and rubberhose interrogations where the artifact itself is the only available evidence. Against these adversary classes the system is deployable today.
+
+FALSECOLORS is **not** deniable against adversaries who invoke a frontier-class LLM as a detection tool. Empirical evaluation (`Eris_FALSECOLORS_v4_LACH.md`) measures the realized adversary advantage and finds that current Method 4 covers are reliably identified as transformed source content under source-domain identification. If your threat model includes a state-level adversary or a workflow that auto-runs Claude / GPT / Gemini against intercepted documents, do not rely on Method 4 covers for deniability against that adversary; use sanitize mode for confidentiality instead, or wait for a v4+ implementation that specifically defends against LLM-mediated detection.
+
+For the cloud-LLM-analysis use case (you want a frontier LLM to reason about your document without learning its identity), use `sanitize` rather than `encrypt`. Sanitize mode replaces identifying tokens with opaque labels and shifts numeric values, then the cloud LLM analyzes the abstracted structure and returns recommendations the user inverse-substitutes locally. This works against any adversary class because the document is visibly processed; it provides confidentiality, not deniability.
+
 ## How It Works
 
 A document's meaning has two parts: its relational structure (what causes what, what measures what, what exceeds what) and its vocabulary (the domain-specific terms). FALSECOLORS changes the vocabulary while preserving the structure. The result is a new document that makes the same argument about a completely different subject.

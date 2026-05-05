@@ -1128,6 +1128,16 @@ class Sanitizer:
         "alert": "ALERT",
         "log": "LOG",
         "misc": "TOKEN",
+        # Generic proper-noun categories for arbitrary-domain sanitize.
+        # Populated by _extract_generic_entities via capitalization heuristics
+        # so that political, legal, medical, financial, and other source
+        # domains are sanitized as effectively as the hand-curated OT
+        # vocabulary above.
+        "org": "ORG",
+        "name": "NAME",
+        "place": "PLACE",
+        "date": "DATE",
+        "quote": "QUOTE",
     }
 
     TOKEN_CLASSES = OrderedDict([
@@ -1188,18 +1198,137 @@ class Sanitizer:
                     return category
         return "misc"
 
-    def _get_label(self, token):
-        # Case-sensitive: 'assessor' and 'Assessor' get different labels
-        # so round-trip recovery preserves casing exactly.
+    def _get_label(self, token, category=None):
+        """Map a token to its opaque label. Case-sensitive ('assessor' vs
+        'Assessor' get different labels) so round-trip recovery preserves
+        casing exactly. category overrides _classify when supplied; used
+        by _extract_generic_entities to assign ORG/NAME/DATE/PLACE/QUOTE
+        without re-running the static classifier."""
         if token in self._token_map:
             return self._token_map[token]
-        category = self._classify(token)
+        if category is None:
+            category = self._classify(token)
         prefix = self.CATEGORIES[category]
         self._label_counter[prefix] = self._label_counter.get(prefix, 0) + 1
         label = f"{prefix}_{self._label_counter[prefix]:03d}"
         self._token_map[token] = label
         self._token_map_inv[label] = token
         return label
+
+    # Common English words that are often capitalized at sentence starts or
+    # in titles but should not be sanitized as proper nouns.
+    _GENERIC_STOPWORDS = frozenset({
+        "the", "this", "that", "these", "those", "an", "and", "but", "or",
+        "not", "if", "when", "while", "during", "after", "before", "since",
+        "though", "although", "because", "however", "moreover", "therefore",
+        "i", "we", "they", "you", "it", "he", "she", "his", "her", "their",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+        "sunday",
+        "january", "february", "march", "april", "may", "june", "july",
+        "august", "september", "october", "november", "december",
+        "confidential", "secret", "summary", "executive", "subject", "date",
+        "from", "to", "re", "memorandum", "report", "recommendations",
+        "conclusion", "introduction", "background", "findings", "observations",
+        "scope", "objective", "details", "details:", "detailed",
+    })
+
+    @staticmethod
+    def _is_sentence_start(text, pos):
+        """True if text[pos] starts a new sentence (after . ! ? ; or text
+        beginning, ignoring intervening whitespace and quotation marks)."""
+        if pos == 0:
+            return True
+        i = pos - 1
+        while i >= 0 and (text[i].isspace() or text[i] in '"\'`'):
+            i -= 1
+        if i < 0:
+            return True
+        return text[i] in ".!?;\n"
+
+    def _extract_generic_entities(self, text, used_positions):
+        """Find proper-noun-style entities via capitalization and pattern
+        heuristics. Returns list of (start, end, category) for spans not
+        already covered by used_positions. Spans within the pass itself
+        are deduplicated (no overlapping matches). Pure regex, no NER
+        model."""
+        out = []
+        # Track positions claimed by entries already added to out so the
+        # later passes (single-name, date, quote) don't generate
+        # overlapping replacements that would corrupt the substitution
+        # loop in sanitize().
+        intra_used = set()
+
+        def _free(s, e):
+            span = set(range(s, e))
+            return not (span & used_positions) and not (span & intra_used)
+
+        def _claim(s, e):
+            intra_used.update(range(s, e))
+
+        # Multi-word capitalized phrases (2+ Capitalized words separated by
+        # spaces, possibly with a single hyphenated or numbered token).
+        # Matches: "Country B Strategic Forces Command", "Riverman Enterprises",
+        # "Mission ECN-7", "President Park", "South Asia Country Desk",
+        # "National Security Council", "Carrier Strike Group 7".
+        multi_pat = (r"\b[A-Z][a-zA-Z]+"
+                     r"(?:[\s-]+(?:[A-Z][a-zA-Z0-9-]*|\d{1,3}))+")
+        # Date patterns first so the org regex doesn't swallow them as
+        # multi-word capitalized phrases. Each date span gets claimed
+        # before the org pass runs.
+        date_patterns = [
+            r"\b(?:January|February|March|April|May|June|July|August|"
+            r"September|October|November|December)\s+\d{1,2}"
+            r"(?:,\s+\d{4})?\b",
+            r"\b(?:January|February|March|April|May|June|July|August|"
+            r"September|October|November|December)\s+\d{4}\b",
+            r"\b\d{4}-\d{2}-\d{2}\b",
+            r"\b\d{2}/\d{2}/\d{2,4}\b",
+        ]
+        for pat in date_patterns:
+            for m in re.finditer(pat, text):
+                s, e = m.start(), m.end()
+                if not _free(s, e):
+                    continue
+                out.append((s, e, "date"))
+                _claim(s, e)
+
+        # Multi-word capitalized phrases.
+        for m in re.finditer(multi_pat, text):
+            s, e = m.start(), m.end()
+            if not _free(s, e):
+                continue
+            phrase = m.group()
+            tokens = re.split(r"[\s-]+", phrase)
+            if all(t.lower() in self._GENERIC_STOPWORDS for t in tokens if t):
+                continue
+            out.append((s, e, "org"))
+            _claim(s, e)
+
+        # Single capitalized word, not at sentence start, not a stopword.
+        single_pat = r"\b[A-Z][a-z]{2,}\b"
+        for m in re.finditer(single_pat, text):
+            s, e = m.start(), m.end()
+            if not _free(s, e):
+                continue
+            word = m.group()
+            if word.lower() in self._GENERIC_STOPWORDS:
+                continue
+            if Sanitizer._is_sentence_start(text, s):
+                continue
+            out.append((s, e, "name"))
+            _claim(s, e)
+
+        # Quoted strings (short content only).
+        for m in re.finditer(r'"([^"\n]{2,80})"', text):
+            s, e = m.start(), m.end()
+            if not _free(s, e):
+                continue
+            out.append((s, e, "quote"))
+            _claim(s, e)
+
+        # Sort descending by start so the caller can substitute in place.
+        out.sort(key=lambda x: x[0], reverse=True)
+        return out
 
     @staticmethod
     def _derive_offset(text, salt):
@@ -1226,6 +1355,8 @@ class Sanitizer:
         result = processed
         used_positions = set()
         replacements = []
+
+        # Pass 1: hand-curated TOKEN_CLASSES (OT/ICS vocabulary)
         for term in all_terms:
             pattern = r'(?<!\w)' + re.escape(term) + r'(?!\w)'
             for m in re.finditer(pattern, result, re.IGNORECASE):
@@ -1235,12 +1366,29 @@ class Sanitizer:
                 label = self._get_label(m.group())
                 replacements.append((s, e, label))
                 used_positions |= set(range(s, e))
+
+        # Pass 2: generic proper-noun entities discovered by capitalization
+        # heuristics. Catches political/legal/medical/financial source
+        # vocabulary that the hand-curated table does not cover. Returns
+        # entries already filtered against used_positions.
+        for s, e, category in self._extract_generic_entities(result,
+                                                              used_positions):
+            label = self._get_label(result[s:e], category)
+            replacements.append((s, e, label))
+            used_positions |= set(range(s, e))
+
         replacements.sort(key=lambda x: x[0], reverse=True)
         for s, e, label in replacements:
             result = result[:s] + label + result[e:]
 
         def shift_number(match):
             original = match.group()
+            # Numbers with leading zeros (e.g. "005" in "NERC CIP-005-7")
+            # are version-string components, not measurements. Skipping
+            # them preserves the exact width on round-trip.
+            if (len(original) > 1 and original.startswith("0")
+                    and "." not in original):
+                return original
             try:
                 if '.' in original:
                     val = float(original)
@@ -1277,6 +1425,10 @@ class Sanitizer:
         # terms (e.g. "Level 1") are never touched by the unshift.
         def unshift_number(match):
             s = match.group()
+            # Mirror sanitize: numbers with leading zeros were not shifted
+            # (they are version-string components), so don't unshift them.
+            if len(s) > 1 and s.startswith("0") and "." not in s:
+                return s
             try:
                 if '.' in s:
                     val = float(s)
