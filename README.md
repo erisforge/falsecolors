@@ -161,6 +161,13 @@ The evaluation surfaced one silent-integrity failure mode worth knowing about: a
 
 The methods described in the paper are published as prior art to ensure they remain freely available to the security community and to prevent future patenting by any party. Anyone is free to implement the described methods independently.
 
+The prior-art claim is backed by two independent cryptographic witnesses:
+
+- **Software Heritage** — every preservation checkpoint is archived at https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/erisforge/falsecolors.git and assigned a content-addressable SWHID that resolves to an immutable snapshot of the entire repository tree.
+- **OpenTimestamps** — `MANIFEST.sha256` contains SHA-256 hashes of every tracked file, and the manifest itself plus each paper version and `falsecolors.py` are stamped with `.ots` proofs that anchor to the Bitcoin blockchain. Verify with `ots verify <file>.ots` against any tracked artifact.
+
+The `preserve.sh` script runs the full preservation pipeline (push, SWH archive, manifest regeneration, OTS stamping, commit, re-archive) at each checkpoint. Run it after meaningful changes (paper revisions, code milestones, pre-disclosure events).
+
 ## Dependencies
 
 | Feature | Requires |
